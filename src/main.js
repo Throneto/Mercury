@@ -20,6 +20,9 @@ class MercuryApp {
         this.renderer = null;
         this.mesh = null;
         this.material = null;
+        this.glassContainer = null;
+        this.containerParts = null;
+        this.levelLine = null;
 
         this.cameraStream = null;
         this.videoTexture = null;
@@ -31,8 +34,8 @@ class MercuryApp {
 
         // Configuration
         this.config = {
-            fillLevel: 0.33, // 2/3 filled means liquid level at -0.33
-            waveIntensity: 0.12, // Increased for more visible flow
+            fillLevel: 0.0, // 1/2 filled - liquid level at center (y=0)
+            waveIntensity: 0.15, // Increased for more visible flow
             sphereDetail: 128
         };
 
@@ -141,6 +144,66 @@ class MercuryApp {
 
         this.mesh = new THREE.Mesh(geometry, this.material);
         this.scene.add(this.mesh);
+
+        // Create glass container frame
+        this.createGlassContainer();
+    }
+
+    createGlassContainer() {
+        const containerHeight = 2.4;
+        const containerRadius = 1.15;
+        const glassThickness = 0.02;
+
+        // Glass cylinder (wireframe style for visibility)
+        const cylinderGeometry = new THREE.CylinderGeometry(
+            containerRadius, containerRadius, containerHeight, 64, 1, true
+        );
+
+        // Glass material - subtle transparent effect
+        const glassMaterial = new THREE.MeshBasicMaterial({
+            color: 0x8899aa,
+            transparent: true,
+            opacity: 0.08,
+            side: THREE.DoubleSide,
+            depthWrite: false
+        });
+
+        this.glassContainer = new THREE.Mesh(cylinderGeometry, glassMaterial);
+        this.scene.add(this.glassContainer);
+
+        // Top rim ring
+        const rimGeometry = new THREE.TorusGeometry(containerRadius, glassThickness, 8, 64);
+        const rimMaterial = new THREE.MeshBasicMaterial({
+            color: 0xaabbcc,
+            transparent: true,
+            opacity: 0.4
+        });
+
+        const topRim = new THREE.Mesh(rimGeometry, rimMaterial);
+        topRim.rotation.x = Math.PI / 2;
+        topRim.position.y = containerHeight / 2;
+        this.scene.add(topRim);
+
+        // Bottom rim ring
+        const bottomRim = new THREE.Mesh(rimGeometry, rimMaterial.clone());
+        bottomRim.rotation.x = Math.PI / 2;
+        bottomRim.position.y = -containerHeight / 2;
+        this.scene.add(bottomRim);
+
+        // Fill level indicator line
+        const levelLineGeometry = new THREE.TorusGeometry(containerRadius + 0.01, 0.005, 4, 64);
+        const levelLineMaterial = new THREE.MeshBasicMaterial({
+            color: 0x66aaff,
+            transparent: true,
+            opacity: 0.5
+        });
+        this.levelLine = new THREE.Mesh(levelLineGeometry, levelLineMaterial);
+        this.levelLine.rotation.x = Math.PI / 2;
+        this.levelLine.position.y = this.config.fillLevel;
+        this.scene.add(this.levelLine);
+
+        // Store references for disposal
+        this.containerParts = [this.glassContainer, topRim, bottomRim, this.levelLine];
     }
 
     animate() {
@@ -231,6 +294,14 @@ class MercuryApp {
 
         if (this.mesh && this.mesh.geometry) {
             this.mesh.geometry.dispose();
+        }
+
+        // Dispose container parts
+        if (this.containerParts) {
+            this.containerParts.forEach(part => {
+                if (part.geometry) part.geometry.dispose();
+                if (part.material) part.material.dispose();
+            });
         }
     }
 }
