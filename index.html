@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <title>Mercury - 液态金属</title>
+</head>
+
+<body>
+    <div id="container">
+        <canvas id="mercury-canvas"></canvas>
+    </div>
+
+    <!-- Permission overlay -->
+    <div id="permission-overlay" class="overlay">
+        <div class="overlay-content">
+            <h1>Mercury</h1>
+            <p>液态金属交互体验</p>
+            <button id="start-btn" class="btn-primary">
+                <span>开始体验</span>
+            </button>
+            <p class="hint">需要摄像头和陀螺仪权限</p>
+        </div>
+    </div>
+
+    <!-- Loading overlay -->
+    <div id="loading-overlay" class="overlay hidden">
+        <div class="loader"></div>
+        <p>初始化中...</p>
+    </div>
+
+    <!-- Error overlay -->
+    <div id="error-overlay" class="overlay hidden">
+        <div class="overlay-content">
+            <h2>出错了</h2>
+            <p id="error-message"></p>
+            <button id="retry-btn" class="btn-primary">重试</button>
+        </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+</body>
+
+</html>
