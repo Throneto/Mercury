@@ -44,13 +44,22 @@ float distributionGGX(vec3 N, vec3 H, float roughness) {
 // Flowing caustic pattern for liquid metal
 float caustic(vec2 uv, float time) {
     float c = 0.0;
-    for (int i = 0; i < 3; i++) {
-        float scale = 1.0 + float(i) * 0.5;
-        float speed = 0.3 + float(i) * 0.1;
-        vec2 p = uv * scale + time * speed * vec2(0.3, 0.2);
-        c += sin(p.x * 3.0 + sin(p.y * 2.5 + time)) * 
-             sin(p.y * 2.8 + sin(p.x * 2.2 + time * 0.7));
-    }
+    
+    // Octave 0 (scale = 1.0, speed = 0.3)
+    vec2 p0 = uv * 1.0 + time * 0.3 * vec2(0.3, 0.2);
+    c += sin(p0.x * 3.0 + sin(p0.y * 2.5 + time)) * 
+         sin(p0.y * 2.8 + sin(p0.x * 2.2 + time * 0.7));
+    
+    // Octave 1 (scale = 1.5, speed = 0.4)
+    vec2 p1 = uv * 1.5 + time * 0.4 * vec2(0.3, 0.2);
+    c += sin(p1.x * 3.0 + sin(p1.y * 2.5 + time)) * 
+         sin(p1.y * 2.8 + sin(p1.x * 2.2 + time * 0.7));
+    
+    // Octave 2 (scale = 2.0, speed = 0.5)
+    vec2 p2 = uv * 2.0 + time * 0.5 * vec2(0.3, 0.2);
+    c += sin(p2.x * 3.0 + sin(p2.y * 2.5 + time)) * 
+         sin(p2.y * 2.8 + sin(p2.x * 2.2 + time * 0.7));
+    
     return c * 0.33;
 }
 

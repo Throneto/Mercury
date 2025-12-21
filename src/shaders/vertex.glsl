@@ -1,3 +1,6 @@
+precision highp float;
+precision highp int;
+
 // Simplex 3D Noise
 // by Ian McEwan, Ashima Arts
 vec4 permute(vec4 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
@@ -95,7 +98,7 @@ void main() {
     float wave1 = snoise(vec3(pos.xy * noiseScale + uGravity.xy * 0.8, uTime * timeScale));
     float wave2 = snoise(vec3(pos.yz * noiseScale * 1.5 + uGravity.yz * 0.5, uTime * timeScale * 0.8)) * 0.4;
     float wave3 = snoise(vec3(pos.xz * noiseScale * 2.0 + uGravity.xz * 0.3, uTime * timeScale * 1.2)) * 0.2;
-    float wave4 = snoise(vec3(pos.xyz * noiseScale * 3.0, uTime * timeScale * 1.5)) * 0.1;
+    float wave4 = snoise(vec3(pos.xy * noiseScale * 3.0, uTime * timeScale * 1.5)) * 0.1;
     
     float totalWave = (wave1 + wave2 + wave3 + wave4) * uWaveIntensity;
     
