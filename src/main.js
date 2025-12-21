@@ -32,7 +32,7 @@ class MercuryApp {
         // Configuration
         this.config = {
             fillLevel: 0.33, // 2/3 filled means liquid level at -0.33
-            waveIntensity: 0.08,
+            waveIntensity: 0.12, // Increased for more visible flow
             sphereDetail: 128
         };
 

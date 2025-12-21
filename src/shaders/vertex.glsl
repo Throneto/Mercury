@@ -83,27 +83,28 @@ void main() {
     float fillMask = smoothstep(uFillLevel - 0.1, uFillLevel + 0.05, pos.y);
     float liquidMask = 1.0 - fillMask;
     
-    // Base wave using simplex noise
-    float noiseScale = 1.5;
-    float timeScale = 0.4;
+    // Enhanced wave parameters for more fluid motion
+    float noiseScale = 2.0;
+    float timeScale = 0.6;
     
     // Gravity-influenced wave direction
     vec3 gravityDir = normalize(uGravity + vec3(0.001));
     float gravityInfluence = dot(normalize(pos), gravityDir) * 0.5 + 0.5;
     
-    // Multi-octave noise for organic look
-    float wave1 = snoise(vec3(pos.xy * noiseScale + uGravity.xy * 0.5, uTime * timeScale));
-    float wave2 = snoise(vec3(pos.yz * noiseScale * 1.3 + uGravity.yz * 0.3, uTime * timeScale * 0.7)) * 0.5;
-    float wave3 = snoise(vec3(pos.xz * noiseScale * 1.7 + uGravity.xz * 0.2, uTime * timeScale * 1.3)) * 0.25;
+    // Multi-octave noise for organic, viscous look
+    float wave1 = snoise(vec3(pos.xy * noiseScale + uGravity.xy * 0.8, uTime * timeScale));
+    float wave2 = snoise(vec3(pos.yz * noiseScale * 1.5 + uGravity.yz * 0.5, uTime * timeScale * 0.8)) * 0.4;
+    float wave3 = snoise(vec3(pos.xz * noiseScale * 2.0 + uGravity.xz * 0.3, uTime * timeScale * 1.2)) * 0.2;
+    float wave4 = snoise(vec3(pos.xyz * noiseScale * 3.0, uTime * timeScale * 1.5)) * 0.1;
     
-    float totalWave = (wave1 + wave2 + wave3) * uWaveIntensity;
+    float totalWave = (wave1 + wave2 + wave3 + wave4) * uWaveIntensity;
     
-    // Apply gravity influence on wave
-    totalWave *= (1.0 + gravityInfluence * 0.5);
+    // Stronger gravity influence for viscous flow
+    totalWave *= (1.0 + gravityInfluence * 0.8);
     
-    // Surface wave at liquid surface
-    float surfaceWave = snoise(vec3(pos.xz * 3.0, uTime * 0.8)) * 0.02;
-    surfaceWave *= smoothstep(uFillLevel - 0.15, uFillLevel, pos.y) * smoothstep(uFillLevel + 0.15, uFillLevel, pos.y);
+    // Surface wave at liquid surface - more pronounced
+    float surfaceWave = snoise(vec3(pos.xz * 4.0, uTime * 1.2)) * 0.03;
+    surfaceWave *= smoothstep(uFillLevel - 0.2, uFillLevel, pos.y) * smoothstep(uFillLevel + 0.2, uFillLevel, pos.y);
     
     // Touch point magnetic attraction
     vec3 touchDisplacement = vec3(0.0);
