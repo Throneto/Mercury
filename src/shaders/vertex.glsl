@@ -147,8 +147,9 @@ void main() {
     float field = metaballField(position, gravityDir, uTime, uVelocity);
     
     // Convert SDF to visibility: negative = inside liquid, positive = outside
-    // SHARP transition for mask to avoid ghostly edges
-    float liquidMask = 1.0 - smoothstep(-0.05, 0.05, field);
+    // Negative field = inside liquid = liquidMask = 1.0
+    // Positive field = outside liquid = liquidMask = 0.0
+    float liquidMask = 1.0 - smoothstep(-0.1, 0.2, field);
     vLiquidMask = liquidMask;
     
     // Start with original position

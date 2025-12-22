@@ -148,8 +148,8 @@ vec3 getStudioEnvironment(vec3 dir) {
 }
 
 void main() {
-    // HARD DISCARD for clean edges
-    if (vLiquidMask < 0.5 || vDisplacement > 0.5) {
+    // Discard only truly collapsed vertices
+    if (vDisplacement > 0.9) {
         discard;
     }
 
