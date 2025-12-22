@@ -15,6 +15,24 @@ import fragmentShader from './shaders/fragment.glsl';
 
 class MercuryApp {
     constructor() {
+        // ... (existing constructor code)
+
+        // Global error handler for mobile debugging
+        window.onerror = (msg, url, lineNo, columnNo, error) => {
+            const string = msg.toLowerCase();
+            const substring = "script error";
+            if (string.indexOf(substring) > -1) {
+                this.showError('Script Error: See Console for details');
+            } else {
+                this.showError(`${msg}\nLine: ${lineNo}`);
+            }
+            return false;
+        };
+
+        window.onunhandledrejection = (event) => {
+            this.showError(`Async Error: ${event.reason}`);
+        };
+
         this.scene = null;
         this.camera = null;
         this.renderer = null;

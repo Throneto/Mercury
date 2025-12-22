@@ -248,16 +248,19 @@ void main() {
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
     
-    // Use liquid mask for smoother edge blending
-    // Discard fully collapsed vertices
-    if (vLiquidMask < 0.05) {
-        discard;
-    }
+    // Discard collapsed/empty vertices (vDisplacement > 0.5 indicates collapsed area)
+    // DEBUG: Commented out discard to see if geometry is rendering at all
+    // if (vLiquidMask < 0.05) {
+    //    discard;
+    // }
     
     // Smooth edge transition using liquid mask
     float edgeAlpha = smoothstep(0.0, 0.25, vLiquidMask);
     float collapseAlpha = 1.0 - smoothstep(0.5, 0.8, vDisplacement);
     float alpha = min(edgeAlpha, collapseAlpha);
+    
+    // DEBUG: Force alpha to be visible if it was discarding
+    alpha = max(alpha, 0.1);
     
     gl_FragColor = vec4(finalColor, alpha);
 }
