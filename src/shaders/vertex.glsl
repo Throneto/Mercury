@@ -142,11 +142,66 @@ float metaballField(vec3 p, vec3 gravityDir, float time, vec3 velocity) {
 }
 
 void main() {
-    vNormal = normalize(normalMatrix * normal);
-    vPosition = position;
-    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
-    vDisplacement = 0.0;
-    vLiquidMask = 1.0;
+    // Normalize gravity direction
+    vec3 gravityDir = normalize(uGravity);
     
-    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    // Calculate metaball field value at current vertex position
+    float field = metaballField(position, gravityDir, uTime, uVelocity);
+    
+    // Convert SDF to visibility: negative = inside liquid, positive = outside
+    // Use smooth transition for organic edge
+    float liquidMask = 1.0 - smoothstep(-0.15, 0.1, field);
+    vLiquidMask = liquidMask;
+    
+    // Start with original position
+    vec3 newPosition = position;
+    
+    // Apply surface waves using noise (only on visible liquid)
+    float waveNoise = snoise(position * 3.0 + uTime * 0.5) * 0.03;
+    waveNoise += snoise(position * 6.0 + uTime * 0.7) * 0.015;
+    
+    // Deform vertices based on field value
+    if (field < 0.2) {
+        // Inside or near liquid surface - apply wave displacement
+        float surfaceDisplace = waveNoise * liquidMask;
+        
+        // Add gravity-based surface pooling effect
+        float gravityInfluence = dot(normalize(position), gravityDir);
+        float pooling = smoothstep(-0.5, 0.5, gravityInfluence) * 0.1;
+        
+        // Combine displacements along normal
+        vec3 displacement = normal * (surfaceDisplace + pooling * 0.05);
+        newPosition += displacement;
+        vDisplacement = length(displacement);
+    } else {
+        // Outside liquid - collapse vertices toward center
+        // This creates the metaball-like shape
+        float collapseAmount = smoothstep(0.1, 0.5, field);
+        newPosition = mix(position, gravityDir * 0.6, collapseAmount);
+        vDisplacement = collapseAmount;
+        vLiquidMask = 1.0 - collapseAmount;
+    }
+    
+    // Apply touch point interactions
+    for (int i = 0; i < 5; i++) {
+        vec4 touch = uTouchPoints[i];
+        if (touch.w > 0.0) {
+            vec3 touchPos = touch.xyz;
+            float touchStrength = touch.w;
+            
+            float dist = length(newPosition - touchPos);
+            float influence = exp(-dist * dist * 8.0) * touchStrength * 0.15;
+            
+            // Push liquid away from touch point
+            vec3 pushDir = normalize(newPosition - touchPos);
+            newPosition += pushDir * influence;
+        }
+    }
+    
+    // Calculate final normal after deformation
+    vNormal = normalize(normalMatrix * normal);
+    vPosition = newPosition;
+    vWorldPosition = (modelMatrix * vec4(newPosition, 1.0)).xyz;
+    
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(newPosition, 1.0);
 }
