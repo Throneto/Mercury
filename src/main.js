@@ -36,7 +36,7 @@ class MercuryApp {
 
         // Configuration
         this.config = {
-            fillLevel: -0.5, // Mercury fills lower portion
+            fillLevel: 0.33, // Mercury fills bottom 1/3 of the sphere
             waveIntensity: 0.18,
             sphereDetail: 96
         };
