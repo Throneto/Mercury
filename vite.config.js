@@ -9,7 +9,7 @@ export default defineConfig({
     ],
     server: {
         host: true, // Allow network access for mobile testing
-        port: 5173,
+        port: 5174,
         https: true // Enable HTTPS for camera/sensors on Safari
     },
     build: {
