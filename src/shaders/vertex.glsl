@@ -69,10 +69,8 @@ float snoise(vec3 v) {
 // Uniforms
 uniform float uTime;
 uniform vec3 uGravity;          // Current gravity (with inertia applied from JS)
-uniform vec3 uTargetGravity;    // Target gravity direction
 uniform vec4 uTouchPoints[5];
 uniform float uFillLevel;
-uniform float uFlowSpeed;       // Flow speed multiplier (0.0 - 1.0)
 uniform vec3 uVelocity;         // Velocity from spring physics for stretching
 
 // Varyings
@@ -182,20 +180,18 @@ void main() {
         vLiquidMask = 1.0 - collapseAmount;
     }
     
-    // Apply touch point interactions
+    // Apply touch point interactions (using arithmetic instead of branching for Safari compatibility)
     for (int i = 0; i < 5; i++) {
         vec4 touch = uTouchPoints[i];
-        if (touch.w > 0.0) {
-            vec3 touchPos = touch.xyz;
-            float touchStrength = touch.w;
-            
-            float dist = length(newPosition - touchPos);
-            float influence = exp(-dist * dist * 8.0) * touchStrength * 0.15;
-            
-            // Push liquid away from touch point
-            vec3 pushDir = normalize(newPosition - touchPos);
-            newPosition += pushDir * influence;
-        }
+        vec3 touchPos = touch.xyz;
+        float touchStrength = touch.w;
+        
+        float dist = length(newPosition - touchPos);
+        float influence = exp(-dist * dist * 8.0) * touchStrength * 0.15;
+        
+        // Push liquid away from touch point (influence is 0 when touchStrength is 0)
+        vec3 pushDir = normalize(newPosition - touchPos + vec3(0.0001)); // Avoid zero division
+        newPosition += pushDir * influence;
     }
     
     // Calculate final normal after deformation

@@ -255,6 +255,8 @@ class MercuryApp {
         const width = this.canvasContainer.clientWidth;
         const height = this.canvasContainer.clientHeight;
 
+        console.log('[Mercury] Creating mercury with container size:', width, 'x', height);
+
         // Create sphere geometry with high detail for smooth deformation
         const geometry = new THREE.SphereGeometry(1, this.config.sphereDetail, this.config.sphereDetail);
 
@@ -280,6 +282,30 @@ class MercuryApp {
 
         this.mesh = new THREE.Mesh(geometry, this.material);
         this.scene.add(this.mesh);
+
+        // Check for shader compilation errors (important for Safari debugging)
+        this.renderer.compile(this.scene, this.camera);
+
+        const gl = this.renderer.getContext();
+        const program = this.renderer.info.programs.length > 0 ?
+            this.renderer.info.programs[0]?.program : null;
+
+        if (program) {
+            const vertexShaderObj = gl.getAttachedShaders(program)?.[0];
+            const fragmentShaderObj = gl.getAttachedShaders(program)?.[1];
+
+            if (vertexShaderObj && !gl.getShaderParameter(vertexShaderObj, gl.COMPILE_STATUS)) {
+                console.error('[Mercury] Vertex shader error:', gl.getShaderInfoLog(vertexShaderObj));
+            }
+            if (fragmentShaderObj && !gl.getShaderParameter(fragmentShaderObj, gl.COMPILE_STATUS)) {
+                console.error('[Mercury] Fragment shader error:', gl.getShaderInfoLog(fragmentShaderObj));
+            }
+            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+                console.error('[Mercury] Shader link error:', gl.getProgramInfoLog(program));
+            }
+        }
+
+        console.log('[Mercury] Mesh created and added to scene');
     }
 
     animate() {
@@ -288,6 +314,11 @@ class MercuryApp {
         requestAnimationFrame(() => this.animate());
 
         const elapsed = this.clock.getElapsedTime();
+
+        // Log first frame for debugging
+        if (elapsed < 0.1) {
+            console.log('[Mercury] Animation running, first frame at:', elapsed);
+        }
 
         // Update uniforms
         this.material.uniforms.uTime.value = elapsed;

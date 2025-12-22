@@ -115,23 +115,22 @@ void main() {
     // Sample camera texture with dispersion
     // Normal-based distortion for reflection
     vec2 reflectDistort = normal.xy * 0.12;
-    float r = texture2D(uCameraTexture, clamp(uvRed + reflectDistort, 0.0, 1.0)).r;
-    float g = texture2D(uCameraTexture, clamp(uvGreen + reflectDistort, 0.0, 1.0)).g;
-    float b = texture2D(uCameraTexture, clamp(uvBlue + reflectDistort, 0.0, 1.0)).b;
-    vec4 cameraColor = vec4(r, g, b, 1.0);
+    float rChannel = texture2D(uCameraTexture, clamp(uvRed + reflectDistort, 0.0, 1.0)).r;
+    float gChannel = texture2D(uCameraTexture, clamp(uvGreen + reflectDistort, 0.0, 1.0)).g;
+    float bChannel = texture2D(uCameraTexture, clamp(uvBlue + reflectDistort, 0.0, 1.0)).b;
+    vec4 cameraColor = vec4(rChannel, gChannel, bChannel, 1.0);
     
     // Create high-contrast environment gradient for chrome
+    // Using smoothstep instead of if-else for Safari compatibility
     float envY = normal.y * 0.5 + 0.5;
-    vec3 envColor;
     
-    // Sharper transition for chrome-like reflections
-    if (envY > 0.6) {
-        envColor = mix(envMid, envTop, (envY - 0.6) * 2.5);
-    } else if (envY > 0.3) {
-        envColor = mix(envBottom, envMid, (envY - 0.3) / 0.3);
-    } else {
-        envColor = envBottom;
-    }
+    // Blend factors for smooth transitions
+    float upperBlend = smoothstep(0.55, 0.65, envY);
+    float midBlend = smoothstep(0.25, 0.35, envY);
+    
+    // Calculate environment color using smooth blending
+    vec3 envColor = mix(envBottom, envMid, midBlend);
+    envColor = mix(envColor, mix(envMid, envTop, (envY - 0.6) * 2.5), upperBlend);
     
     // Subtle flowing environment pattern
     float envFlow = sin(normal.x * 8.0 + uTime * 0.25) * 
@@ -242,9 +241,9 @@ void main() {
     finalColor *= 1.25;
     
     // ACES-like tone mapping for HDR handling
-    vec3 a = finalColor * (finalColor + 0.0245786) - 0.000090537;
-    vec3 b = finalColor * (0.983729 * finalColor + 0.4329510) + 0.238081;
-    finalColor = a / b;
+    vec3 tonemapA = finalColor * (finalColor + 0.0245786) - 0.000090537;
+    vec3 tonemapB = finalColor * (0.983729 * finalColor + 0.4329510) + 0.238081;
+    finalColor = tonemapA / tonemapB;
     
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
