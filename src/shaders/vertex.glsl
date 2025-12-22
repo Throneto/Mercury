@@ -142,9 +142,18 @@ float metaballField(vec3 p, vec3 gravityDir, float time, vec3 velocity) {
 }
 
 void main() {
-    vec3 pos = position;
+    // === DEBUG MODE: SIMPLE SPHERE ===
+    vNormal = normalize(normalMatrix * normal);
+    vPosition = position;
+    vWorldPosition = (modelMatrix * vec4(position, 1.0)).xyz;
+    vDisplacement = 0.0;
+    vLiquidMask = 1.0;
     
-    // === GRAVITY-BASED MERCURY POOLING WITH METABALL FUSION ===
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+    return; // SKIP ALL COMPLEX LOGIC
+
+    // Original Logic (Ignored)
+    // vec3 pos = position; ...
     vec3 gravityDir = normalize(uGravity + vec3(0.001));
     
     // Alignment with gravity direction

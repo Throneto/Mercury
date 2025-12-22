@@ -76,7 +76,12 @@ vec2 liquidFlow(vec3 pos, float time) {
 }
 
 void main() {
-    vec3 normal = normalize(vNormal);
+    // DEBUG: Output solid RED to verify rendering
+    gl_FragColor = vec4(1.0, 0.0, 0.0, 1.0);
+    return; // SKIP ALL COMPLEX LOGIC
+
+    // Original Logic (Ignored)
+    //vec3 normal = normalize(vNormal);
     vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
     float NdotV = max(dot(normal, viewDir), 0.0);
     
