@@ -71,7 +71,7 @@ uniform float uTime;
 uniform vec3 uGravity;          // Current gravity (with inertia applied from JS)
 uniform vec3 uTargetGravity;    // Target gravity direction
 uniform vec4 uTouchPoints[5];
-uniform float uFillLevel;
+
 uniform float uFlowSpeed;       // Flow speed multiplier (0.0 - 1.0)
 uniform vec3 uVelocity;         // Velocity from spring physics for stretching
 

@@ -39,19 +39,19 @@ export async function getCameraStream(preferFront = true) {
 export function createVideoElement(stream) {
     const video = document.createElement('video');
     video.srcObject = stream;
-    video.setAttribute('playsinline', ''); // Required for iOS
-    video.setAttribute('muted', '');
+    // iOS Safari requires playsinline
+    video.setAttribute('playsinline', 'true');
+    video.setAttribute('webkit-playsinline', 'true');
+    video.setAttribute('muted', 'true');
     video.muted = true;
-    video.autoplay = true;
-    
-    return new Promise((resolve, reject) => {
-        video.onloadedmetadata = () => {
-            video.play()
-                .then(() => resolve(video))
-                .catch(reject);
-        };
-        video.onerror = reject;
+
+    // Auto-play might be blocked, so we return the video element immediately
+    // and let the caller handle the play() promise which might need user interaction
+    video.play().catch(e => {
+        console.warn('Auto-play blocked, waiting for user interaction', e);
     });
+
+    return Promise.resolve(video);
 }
 
 /**

@@ -157,6 +157,15 @@ class MercuryApp {
         this.cameraStream = await getCameraStream(true);
         const video = await createVideoElement(this.cameraStream);
 
+        // iOS Safari fix: Video must be in DOM to play reliably
+        video.style.position = 'absolute';
+        video.style.width = '1px';
+        video.style.height = '1px';
+        video.style.opacity = '0';
+        video.style.pointerEvents = 'none';
+        video.style.zIndex = '-1';
+        document.body.appendChild(video);
+
         // Create video texture
         this.videoTexture = new THREE.VideoTexture(video);
         this.videoTexture.minFilter = THREE.LinearFilter;
@@ -215,6 +224,7 @@ class MercuryApp {
                 uWaveIntensity: { value: this.config.waveIntensity },
                 uFillLevel: { value: this.config.fillLevel },
                 uVelocity: { value: new THREE.Vector3(0, 0, 0) }, // For stretching effect
+                uDeviceTilt: { value: new THREE.Vector3(0, 0, 0) }, // For parallax effect
                 uCameraPosition: { value: this.camera.position }
             }
         });
@@ -235,6 +245,14 @@ class MercuryApp {
 
         // Update gravity from sensors
         const targetGravity = this.sensorManager.getGravity();
+        const rawGravity = this.sensorManager.getRawGravity();
+
+        // Update device tilt for parallax (no inertia)
+        this.material.uniforms.uDeviceTilt.value.set(
+            rawGravity.x,
+            rawGravity.y,
+            rawGravity.z
+        );
 
         // Spring Physics System for Jelly-like Wobble
         const targetVec = new THREE.Vector3(targetGravity.x, targetGravity.y, targetGravity.z);

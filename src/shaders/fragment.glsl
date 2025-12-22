@@ -6,7 +6,9 @@ uniform vec2 uResolution;
 uniform float uTime;
 uniform vec3 uGravity;
 uniform float uFillLevel;
+
 uniform vec3 uCameraPosition;
+uniform vec3 uDeviceTilt; // Raw device tilt for parallax
 
 // Varyings
 varying vec3 vNormal;
@@ -99,8 +101,12 @@ void main() {
                         sin(vPosition.y * 4.0 + uTime * 0.5) * 0.008;
     flowOffset += vec2(waveDistort, waveDistort * 0.7);
     
+    // PARALLAX EFFECT
+    // Shift reflection based on device tilt to create depth illusion
+    vec2 parallaxOffset = uDeviceTilt.xy * 0.15;
+    
     // Normal-based reflection with reduced distortion for sharper reflections
-    vec2 reflectOffset = normal.xy * 0.12 + flowOffset;
+    vec2 reflectOffset = normal.xy * 0.12 + flowOffset + parallaxOffset;
     vec2 reflectUV = screenUV + reflectOffset;
     reflectUV = clamp(reflectUV, 0.0, 1.0);
     reflectUV.x = 1.0 - reflectUV.x;
@@ -174,6 +180,14 @@ void main() {
     float geom = geometrySchlickGGX(NdotV, 0.02);
     float totalSpec = (spec1 + spec2 + spec3 + spec4 + flowingSpec) * geom;
     vec3 specularColor = mercuryHighlight * totalSpec;
+    
+    // === SECONDARY GLINT LAYER (Reactive 3D Highlight) ===
+    // Sharp highlights that move with device tilt (simulating fixed external lights)
+    // This creates the "live" 3D feel when tilting
+    vec3 tiltLightDir = normalize(vec3(uDeviceTilt.x, uDeviceTilt.y, 1.0));
+    vec3 glintHalf = normalize(tiltLightDir + viewDir);
+    float glintSpec = pow(max(dot(normal, glintHalf), 0.0), 120.0) * 0.8; // Ultra sharp
+    specularColor += mercuryHighlight * glintSpec;
     
     // === SUBTLE CAUSTIC PATTERNS FOR LIQUID FLOW ===
     float causticPattern = caustic(vPosition.xy, uTime * 0.6);

@@ -98,4 +98,12 @@ export class SensorManager {
     getGravity() {
         return this.smoothedGravity;
     }
+
+    /**
+     * Get raw gravity vector (no smoothing) for reactive effects
+     * @returns {{x: number, y: number, z: number}}
+     */
+    getRawGravity() {
+        return this.gravity;
+    }
 }
