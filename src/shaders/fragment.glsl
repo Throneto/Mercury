@@ -201,10 +201,6 @@ void main() {
     );
     finalColor += liquidVariation * 0.015 * (1.0 - NdotV);
     
-    // Surface line highlight at liquid level
-    float surfaceHighlight = smoothstep(0.1, 0.0, abs(vPosition.y - uFillLevel));
-    finalColor += mercuryHighlight * surfaceHighlight * 0.7;
-    
     // Flowing light streaks for liquid metal movement
     float streak = sin(vPosition.x * 12.0 + vPosition.y * 8.0 + uTime * 1.2) * 0.5 + 0.5;
     streak = pow(streak, 8.0) * 0.15 * (0.5 + 0.5 * sin(uTime * 0.8));
@@ -221,5 +217,14 @@ void main() {
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
     
-    gl_FragColor = vec4(finalColor, 1.0);
+    // Discard collapsed/empty vertices (vDisplacement > 0.5 indicates collapsed area)
+    if (vDisplacement > 0.7) {
+        discard;
+    }
+    
+    // Fade out near the collapse threshold for smooth edge
+    float alpha = 1.0 - smoothstep(0.4, 0.7, vDisplacement);
+    
+    gl_FragColor = vec4(finalColor, alpha);
 }
+

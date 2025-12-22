@@ -82,16 +82,35 @@ varying float vDisplacement;
 void main() {
     vec3 pos = position;
     
-    // Fill level - only affect lower portion of sphere
-    float fillMask = smoothstep(uFillLevel - 0.1, uFillLevel + 0.05, pos.y);
-    float liquidMask = 1.0 - fillMask;
+    // === GRAVITY-BASED MERCURY POOLING ===
+    // Calculate how much each vertex should be pulled toward the gravity direction
+    vec3 gravityDir = normalize(uGravity + vec3(0.001));
     
-    // Enhanced wave parameters for more fluid motion
+    // How aligned is this vertex with the gravity direction?
+    // Positive = facing gravity, Negative = away from gravity  
+    float gravityAlignment = dot(normalize(pos), gravityDir);
+    
+    // Vertices away from gravity direction (top of sphere when upright) should collapse
+    // uFillLevel controls what fraction is liquid (0.33 = bottom 1/3)
+    float collapseThreshold = uFillLevel * 2.0 - 1.0; // Convert 0-1 to -1 to 1
+    
+    // Calculate how much to collapse this vertex
+    // Vertices above the threshold get pulled down toward the liquid surface
+    float aboveLiquid = smoothstep(collapseThreshold - 0.15, collapseThreshold + 0.05, -gravityAlignment);
+    
+    // Collapse: move vertex toward the gravity direction (toward liquid pool)
+    // The more above liquid, the more it collapses
+    vec3 collapseTarget = gravityDir * (1.0 - uFillLevel) * 0.8;
+    pos = mix(pos, pos * (1.0 - aboveLiquid * 0.85) + collapseTarget * aboveLiquid, aboveLiquid * 0.9);
+    
+    // === LIQUID SURFACE MASK ===
+    float liquidMask = 1.0 - aboveLiquid;
+    
+    // === WAVE ANIMATION ===
     float noiseScale = 2.0;
     float timeScale = 0.6;
     
     // Gravity-influenced wave direction
-    vec3 gravityDir = normalize(uGravity + vec3(0.001));
     float gravityInfluence = dot(normalize(pos), gravityDir) * 0.5 + 0.5;
     
     // Multi-octave noise for organic, viscous look
@@ -101,43 +120,35 @@ void main() {
     float wave4 = snoise(vec3(pos.xy * noiseScale * 3.0, uTime * timeScale * 1.5)) * 0.1;
     
     float totalWave = (wave1 + wave2 + wave3 + wave4) * uWaveIntensity;
-    
-    // Stronger gravity influence for viscous flow
     totalWave *= (1.0 + gravityInfluence * 0.8);
     
-    // Surface wave at liquid surface - more pronounced
-    float surfaceWave = snoise(vec3(pos.xz * 4.0, uTime * 1.2)) * 0.03;
-    surfaceWave *= smoothstep(uFillLevel - 0.2, uFillLevel, pos.y) * smoothstep(uFillLevel + 0.2, uFillLevel, pos.y);
+    // Surface tension bulge at liquid surface edge
+    float surfaceEdge = smoothstep(0.0, 0.3, liquidMask) * smoothstep(0.5, 0.2, liquidMask);
+    float surfaceBulge = surfaceEdge * 0.15;
     
-    // Touch point magnetic attraction
+    // Surface wave at liquid surface
+    float surfaceWave = snoise(vec3(pos.xz * 4.0, uTime * 1.2)) * 0.03;
+    surfaceWave *= surfaceEdge;
+    
+    // === TOUCH INTERACTION ===
     vec3 touchDisplacement = vec3(0.0);
     for (int i = 0; i < 5; i++) {
         if (uTouchPoints[i].w > 0.0) {
-            // Convert touch point from 2D to 3D
             vec3 touchPos = vec3(uTouchPoints[i].xy * 2.0, 0.5);
-            
-            // Distance from vertex to touch point (projected)
             float dist = distance(pos.xy, touchPos.xy);
-            
-            // Gaussian falloff for smooth attraction
             float strength = uTouchPoints[i].z * exp(-dist * dist * 4.0) * 0.3;
-            
-            // Pull toward touch point (magnetic effect)
             vec3 pullDir = normalize(touchPos - pos);
             touchDisplacement += pullDir * strength;
-            
-            // Also create a local bulge
             touchDisplacement += normal * strength * 0.5;
         }
     }
     
-    // Combine all displacements
-    float displacement = totalWave * liquidMask + surfaceWave;
+    // === COMBINE ALL DISPLACEMENTS ===
+    float displacement = (totalWave + surfaceBulge + surfaceWave) * liquidMask;
     pos += normal * displacement;
     pos += touchDisplacement * liquidMask;
     
-    // Calculate perturbed normal for lighting
-    // Using finite differences for normal estimation
+    // === CALCULATE PERTURBED NORMAL ===
     float eps = 0.01;
     float dx = snoise(vec3((position.xy + vec2(eps, 0.0)) * noiseScale, uTime * timeScale)) - 
                snoise(vec3((position.xy - vec2(eps, 0.0)) * noiseScale, uTime * timeScale));
@@ -146,11 +157,12 @@ void main() {
     
     vec3 perturbedNormal = normalize(normal + vec3(dx, dy, 0.0) * uWaveIntensity * 2.0);
     
-    // Output
+    // === OUTPUT ===
     vNormal = normalize(normalMatrix * perturbedNormal);
     vPosition = pos;
     vWorldPosition = (modelMatrix * vec4(pos, 1.0)).xyz;
-    vDisplacement = displacement + length(touchDisplacement);
+    vDisplacement = displacement + length(touchDisplacement) + aboveLiquid;
     
     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
+

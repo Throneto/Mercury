@@ -193,10 +193,12 @@ class MercuryApp {
         // Create sphere geometry with high detail for smooth deformation
         const geometry = new THREE.SphereGeometry(1, this.config.sphereDetail, this.config.sphereDetail);
 
-        // Custom shader material
+        // Custom shader material with transparency for collapsed areas
         this.material = new THREE.ShaderMaterial({
             vertexShader: vertexShader,
             fragmentShader: fragmentShader,
+            transparent: true,
+            side: THREE.DoubleSide,
             uniforms: {
                 uTime: { value: 0 },
                 uGravity: { value: new THREE.Vector3(0, -1, 0) },
