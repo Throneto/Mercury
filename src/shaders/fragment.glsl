@@ -13,6 +13,7 @@ varying vec3 vNormal;
 varying vec3 vPosition;
 varying vec3 vWorldPosition;
 varying float vDisplacement;
+varying float vLiquidMask;
 
 // Real mercury colors - pure silver with strong contrast (based on reference photo)
 const vec3 mercuryBright = vec3(0.92, 0.92, 0.90);     // Pure warm silver highlight
@@ -217,13 +218,16 @@ void main() {
     // Gamma correction
     finalColor = pow(finalColor, vec3(1.0 / 2.2));
     
-    // Discard collapsed/empty vertices (vDisplacement > 0.5 indicates collapsed area)
-    if (vDisplacement > 0.7) {
+    // Use liquid mask for smoother edge blending
+    // Discard fully collapsed vertices
+    if (vLiquidMask < 0.05) {
         discard;
     }
     
-    // Fade out near the collapse threshold for smooth edge
-    float alpha = 1.0 - smoothstep(0.4, 0.7, vDisplacement);
+    // Smooth edge transition using liquid mask
+    float edgeAlpha = smoothstep(0.0, 0.25, vLiquidMask);
+    float collapseAlpha = 1.0 - smoothstep(0.5, 0.8, vDisplacement);
+    float alpha = min(edgeAlpha, collapseAlpha);
     
     gl_FragColor = vec4(finalColor, alpha);
 }

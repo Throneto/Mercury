@@ -68,67 +68,151 @@ float snoise(vec3 v) {
 
 // Uniforms
 uniform float uTime;
-uniform vec3 uGravity;
+uniform vec3 uGravity;          // Current gravity (with inertia applied from JS)
+uniform vec3 uTargetGravity;    // Target gravity direction
 uniform vec4 uTouchPoints[5];
 uniform float uWaveIntensity;
 uniform float uFillLevel;
+uniform float uFlowSpeed;       // Flow speed multiplier (0.0 - 1.0)
 
 // Varyings
 varying vec3 vNormal;
 varying vec3 vPosition;
 varying vec3 vWorldPosition;
 varying float vDisplacement;
+varying float vLiquidMask;      // Pass liquid mask to fragment shader
+
+// === METABALL FUSION FUNCTIONS ===
+
+// Smooth minimum for metaball blending - creates organic fusion
+float smin(float a, float b, float k) {
+    float h = clamp(0.5 + 0.5 * (b - a) / k, 0.0, 1.0);
+    return mix(b, a, h) - k * h * (1.0 - h);
+}
+
+// Signed distance function for a sphere
+float sdSphere(vec3 p, vec3 center, float radius) {
+    return length(p - center) - radius;
+}
+
+// Compute metaball field value at a point
+// Multiple blob centers create organic fusion effect
+float metaballField(vec3 p, vec3 gravityDir, float time) {
+    // Main liquid pool at gravity direction
+    vec3 poolCenter = gravityDir * 0.55;
+    float poolRadius = 0.8;
+    float mainPool = sdSphere(p, poolCenter, poolRadius);
+    
+    // Secondary blobs for organic feel - positioned around the pool
+    vec3 blobOffset1 = gravityDir * 0.3 + vec3(
+        sin(time * 0.3) * 0.15,
+        cos(time * 0.25) * 0.1,
+        sin(time * 0.35) * 0.12
+    );
+    float blob1 = sdSphere(p, poolCenter + blobOffset1, 0.35);
+    
+    vec3 blobOffset2 = gravityDir * 0.25 + vec3(
+        cos(time * 0.28) * 0.12,
+        sin(time * 0.32) * 0.15,
+        cos(time * 0.22) * 0.1
+    );
+    float blob2 = sdSphere(p, poolCenter + blobOffset2, 0.3);
+    
+    // Tertiary small blobs for surface detail
+    vec3 blobOffset3 = gravityDir * 0.15 + vec3(
+        sin(time * 0.4 + 1.0) * 0.1,
+        cos(time * 0.35 + 0.5) * 0.08,
+        sin(time * 0.45) * 0.12
+    );
+    float blob3 = sdSphere(p, poolCenter + blobOffset3, 0.2);
+    
+    // Smooth blend all blobs together - larger k = smoother fusion
+    float blendK = 0.4;
+    float field = smin(mainPool, blob1, blendK);
+    field = smin(field, blob2, blendK);
+    field = smin(field, blob3, blendK * 0.8);
+    
+    return field;
+}
 
 void main() {
     vec3 pos = position;
     
-    // === GRAVITY-BASED MERCURY POOLING ===
-    // Calculate how much each vertex should be pulled toward the gravity direction
+    // === GRAVITY-BASED MERCURY POOLING WITH METABALL FUSION ===
     vec3 gravityDir = normalize(uGravity + vec3(0.001));
     
-    // How aligned is this vertex with the gravity direction?
-    // Positive = facing gravity, Negative = away from gravity  
+    // Alignment with gravity direction
     float gravityAlignment = dot(normalize(pos), gravityDir);
     
-    // Vertices away from gravity direction (top of sphere when upright) should collapse
-    // uFillLevel controls what fraction is liquid (0.33 = bottom 1/3)
-    float collapseThreshold = uFillLevel * 2.0 - 1.0; // Convert 0-1 to -1 to 1
+    // Calculate metaball field influence
+    float metaField = metaballField(pos, gravityDir, uTime * uFlowSpeed * 0.5);
     
-    // Calculate how much to collapse this vertex
-    // Vertices above the threshold get pulled down toward the liquid surface
-    float aboveLiquid = smoothstep(collapseThreshold - 0.15, collapseThreshold + 0.05, -gravityAlignment);
+    // Convert fill level to threshold
+    float collapseThreshold = uFillLevel * 2.0 - 1.0;
     
-    // Collapse: move vertex toward the gravity direction (toward liquid pool)
-    // The more above liquid, the more it collapses
-    vec3 collapseTarget = gravityDir * (1.0 - uFillLevel) * 0.8;
-    pos = mix(pos, pos * (1.0 - aboveLiquid * 0.85) + collapseTarget * aboveLiquid, aboveLiquid * 0.9);
+    // Combine gravity alignment with metaball field for organic shape
+    float combinedField = -gravityAlignment + metaField * 0.25;
+    
+    // Smooth transition for liquid surface
+    float aboveLiquid = smoothstep(collapseThreshold - 0.2, collapseThreshold + 0.1, combinedField);
+    
+    // === ORGANIC COLLAPSE WITH SURFACE TENSION ===
+    
+    // Surface tension: liquid tries to minimize surface area
+    // Creates rounded edges and bulges
+    float surfaceTension = smoothstep(0.0, 0.4, aboveLiquid) * smoothstep(0.8, 0.3, aboveLiquid);
+    float tensionBulge = surfaceTension * 0.12;
+    
+    // Collapse target - vertices above liquid surface move toward the pool
+    vec3 poolCenter = gravityDir * (1.0 - uFillLevel) * 0.6;
+    
+    // Calculate collapse with smooth falloff
+    float collapseAmount = aboveLiquid * 0.9;
+    vec3 collapsedPos = mix(pos, poolCenter, collapseAmount);
+    
+    // Add surface tension bulge at the liquid edge
+    vec3 edgeNormal = normalize(pos - poolCenter);
+    collapsedPos += edgeNormal * tensionBulge * (1.0 - collapseAmount);
+    
+    pos = collapsedPos;
     
     // === LIQUID SURFACE MASK ===
     float liquidMask = 1.0 - aboveLiquid;
+    vLiquidMask = liquidMask;
     
-    // === WAVE ANIMATION ===
-    float noiseScale = 2.0;
-    float timeScale = 0.6;
+    // === VISCOUS WAVE ANIMATION ===
+    // Slower, more viscous movement for mercury-like feel
+    float noiseScale = 1.8;
+    float timeScale = 0.3 * uFlowSpeed;  // Slower flow
     
     // Gravity-influenced wave direction
-    float gravityInfluence = dot(normalize(pos), gravityDir) * 0.5 + 0.5;
+    float gravityInfluence = gravityAlignment * 0.5 + 0.5;
     
     // Multi-octave noise for organic, viscous look
-    float wave1 = snoise(vec3(pos.xy * noiseScale + uGravity.xy * 0.8, uTime * timeScale));
-    float wave2 = snoise(vec3(pos.yz * noiseScale * 1.5 + uGravity.yz * 0.5, uTime * timeScale * 0.8)) * 0.4;
-    float wave3 = snoise(vec3(pos.xz * noiseScale * 2.0 + uGravity.xz * 0.3, uTime * timeScale * 1.2)) * 0.2;
-    float wave4 = snoise(vec3(pos.xy * noiseScale * 3.0, uTime * timeScale * 1.5)) * 0.1;
+    float wave1 = snoise(vec3(pos.xy * noiseScale + uGravity.xy * 0.6, uTime * timeScale));
+    float wave2 = snoise(vec3(pos.yz * noiseScale * 1.3 + uGravity.yz * 0.4, uTime * timeScale * 0.7)) * 0.35;
+    float wave3 = snoise(vec3(pos.xz * noiseScale * 1.6 + uGravity.xz * 0.25, uTime * timeScale * 0.9)) * 0.18;
+    float wave4 = snoise(vec3(pos.xy * noiseScale * 2.2, uTime * timeScale * 1.1)) * 0.08;
     
-    float totalWave = (wave1 + wave2 + wave3 + wave4) * uWaveIntensity;
-    totalWave *= (1.0 + gravityInfluence * 0.8);
+    float totalWave = (wave1 + wave2 + wave3 + wave4) * uWaveIntensity * 0.7;
+    totalWave *= (1.0 + gravityInfluence * 0.6);
     
-    // Surface tension bulge at liquid surface edge
-    float surfaceEdge = smoothstep(0.0, 0.3, liquidMask) * smoothstep(0.5, 0.2, liquidMask);
-    float surfaceBulge = surfaceEdge * 0.15;
+    // === SURFACE TENSION BULGE AT LIQUID EDGE ===
+    float surfaceEdge = smoothstep(0.0, 0.35, liquidMask) * smoothstep(0.55, 0.25, liquidMask);
+    float surfaceBulge = surfaceEdge * 0.18;
     
-    // Surface wave at liquid surface
-    float surfaceWave = snoise(vec3(pos.xz * 4.0, uTime * 1.2)) * 0.03;
+    // Gentle surface ripple at liquid edge
+    float surfaceWave = snoise(vec3(pos.xz * 3.5, uTime * timeScale * 0.8)) * 0.025;
     surfaceWave *= surfaceEdge;
+    
+    // === SLOW FLOWING EFFECT ===
+    // Creates viscous "dripping" feel
+    float flowNoise = snoise(vec3(
+        pos.x * 2.0 + gravityDir.x * uTime * 0.15,
+        pos.y * 2.0 + gravityDir.y * uTime * 0.15,
+        pos.z * 2.0 + uTime * 0.1
+    ));
+    float flowDisplacement = flowNoise * 0.04 * liquidMask * uFlowSpeed;
     
     // === TOUCH INTERACTION ===
     vec3 touchDisplacement = vec3(0.0);
@@ -144,7 +228,7 @@ void main() {
     }
     
     // === COMBINE ALL DISPLACEMENTS ===
-    float displacement = (totalWave + surfaceBulge + surfaceWave) * liquidMask;
+    float displacement = (totalWave + surfaceBulge + surfaceWave + flowDisplacement) * liquidMask;
     pos += normal * displacement;
     pos += touchDisplacement * liquidMask;
     
@@ -155,7 +239,7 @@ void main() {
     float dy = snoise(vec3((position.xy + vec2(0.0, eps)) * noiseScale, uTime * timeScale)) - 
                snoise(vec3((position.xy - vec2(0.0, eps)) * noiseScale, uTime * timeScale));
     
-    vec3 perturbedNormal = normalize(normal + vec3(dx, dy, 0.0) * uWaveIntensity * 2.0);
+    vec3 perturbedNormal = normalize(normal + vec3(dx, dy, 0.0) * uWaveIntensity * 1.5);
     
     // === OUTPUT ===
     vNormal = normalize(normalMatrix * perturbedNormal);
@@ -165,4 +249,3 @@ void main() {
     
     gl_Position = projectionMatrix * modelViewMatrix * vec4(pos, 1.0);
 }
-

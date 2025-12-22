@@ -36,10 +36,15 @@ class MercuryApp {
 
         // Configuration
         this.config = {
-            fillLevel: 0.33, // Mercury fills bottom 1/3 of the sphere
+            fillLevel: 0.33,        // Mercury fills bottom 1/3 of the sphere
             waveIntensity: 0.18,
-            sphereDetail: 96
+            sphereDetail: 96,
+            flowSpeed: 0.4,         // Flow speed multiplier (0.0-1.0)
+            gravitySmoothing: 0.03  // Inertia factor for gravity (lower = more inertia)
         };
+
+        // Smoothed gravity for inertia effect
+        this.smoothedGravity = { x: 0, y: -1, z: 0 };
 
         // DOM elements
         this.phoneCard = document.getElementById('phone-card');
@@ -207,6 +212,8 @@ class MercuryApp {
                 uResolution: { value: new THREE.Vector2(width, height) },
                 uWaveIntensity: { value: this.config.waveIntensity },
                 uFillLevel: { value: this.config.fillLevel },
+                uFlowSpeed: { value: this.config.flowSpeed },
+                uTargetGravity: { value: new THREE.Vector3(0, -1, 0) },
                 uCameraPosition: { value: this.camera.position }
             }
         });
@@ -225,9 +232,26 @@ class MercuryApp {
         // Update uniforms
         this.material.uniforms.uTime.value = elapsed;
 
-        // Update gravity from sensors
-        const gravity = this.sensorManager.getGravity();
-        this.material.uniforms.uGravity.value.set(gravity.x, gravity.y, gravity.z);
+        // Update gravity from sensors with inertia smoothing
+        const targetGravity = this.sensorManager.getGravity();
+
+        // Apply inertia: smoothly interpolate toward target gravity
+        const smoothing = this.config.gravitySmoothing;
+        this.smoothedGravity.x += (targetGravity.x - this.smoothedGravity.x) * smoothing;
+        this.smoothedGravity.y += (targetGravity.y - this.smoothedGravity.y) * smoothing;
+        this.smoothedGravity.z += (targetGravity.z - this.smoothedGravity.z) * smoothing;
+
+        // Update uniforms with smoothed gravity
+        this.material.uniforms.uGravity.value.set(
+            this.smoothedGravity.x,
+            this.smoothedGravity.y,
+            this.smoothedGravity.z
+        );
+        this.material.uniforms.uTargetGravity.value.set(
+            targetGravity.x,
+            targetGravity.y,
+            targetGravity.z
+        );
 
         // Update touch points
         this.touchManager.update();
