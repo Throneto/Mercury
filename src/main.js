@@ -22,7 +22,7 @@ class MercuryApp {
         this.material = null;
 
         this.cameraStream = null;
-        this.videoTexture = null;
+        this.videoTexture = this.createFallbackTexture(); // Start with fallback
         this.sensorManager = new SensorManager();
         this.touchManager = new TouchManager(5);
 
@@ -126,19 +126,22 @@ class MercuryApp {
         this.showLoading();
 
         try {
-            // Request permissions
-            await this.requestPermissions();
-
-            // Initialize Three.js
+            // Initialize Three.js first so we have something to show
             this.initThree();
+            await this.createMercury(); // Create mercury with fallback texture
 
-            // Create mercury sphere
-            await this.createMercury();
+            // Try to request permissions, but don't fade out if failed
+            try {
+                await this.requestPermissions();
+            } catch (permError) {
+                console.warn('Permissions denied, running in fallback mode:', permError);
+                // Don't show error overlay, just run with fallback
+            }
 
             // Bind touch events to canvas for mercury interaction
             this.touchManager.bind(this.canvas);
 
-            // Start sensors
+            // Start sensors (if allowed)
             this.sensorManager.start();
 
             // Hide overlays and start animation
@@ -147,9 +150,29 @@ class MercuryApp {
             this.animate();
 
         } catch (error) {
-            console.error('Initialization error:', error);
+            console.error('Critical initialization error:', error);
             this.showError(error.message);
         }
+    }
+
+    createFallbackTexture() {
+        // Create a simple gradient canvas as fallback environment
+        const canvas = document.createElement('canvas');
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext('2d');
+
+        // Simple silver/grey gradient
+        const gradient = ctx.createLinearGradient(0, 0, 0, 512);
+        gradient.addColorStop(0.0, '#ffffff');
+        gradient.addColorStop(0.5, '#808080');
+        gradient.addColorStop(1.0, '#202020');
+
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, 512, 512);
+
+        const texture = new THREE.CanvasTexture(canvas);
+        return texture;
     }
 
     async requestPermissions() {
@@ -167,10 +190,18 @@ class MercuryApp {
         document.body.appendChild(video);
 
         // Create video texture
-        this.videoTexture = new THREE.VideoTexture(video);
-        this.videoTexture.minFilter = THREE.LinearFilter;
-        this.videoTexture.magFilter = THREE.LinearFilter;
-        this.videoTexture.format = THREE.RGBAFormat;
+        const newTexture = new THREE.VideoTexture(video);
+        newTexture.minFilter = THREE.LinearFilter;
+        newTexture.magFilter = THREE.LinearFilter;
+        newTexture.format = THREE.RGBAFormat;
+
+        // Update texture reference
+        this.videoTexture = newTexture;
+
+        // Update material if already created
+        if (this.material) {
+            this.material.uniforms.uCameraTexture.value = this.videoTexture;
+        }
 
         // Request orientation permission (iOS)
         await this.sensorManager.requestPermission();
