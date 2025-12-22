@@ -147,8 +147,8 @@ void main() {
     float field = metaballField(position, gravityDir, uTime, uVelocity);
     
     // Convert SDF to visibility: negative = inside liquid, positive = outside
-    // Use sharp transition for mask to avoid ghostly edges
-    float liquidMask = 1.0 - smoothstep(-0.1, 0.0, field);
+    // SHARP transition for mask to avoid ghostly edges
+    float liquidMask = 1.0 - smoothstep(-0.05, 0.05, field);
     vLiquidMask = liquidMask;
     
     // Start with original position
@@ -174,8 +174,7 @@ void main() {
         // Mark as valid liquid (0.0 means "not collapsed")
         vDisplacement = 0.0;
     } else {
-        // Outside liquid - collapse vertices toward center
-        // Collapse completely to a single point to hide them
+        // Outside liquid - collapse vertices completely
         newPosition = vec3(0.0);
         
         // Mark as collapsed (1.0 means "fully collapsed")
@@ -199,8 +198,6 @@ void main() {
     }
     
     // Calculate final normal after deformation
-    // For collapsed vertices, normal doesn't matter (they are discarded/invisible)
-    // For liquid, we want the organic normal
     vNormal = normalize(normalMatrix * normal);
     vPosition = newPosition;
     vWorldPosition = (modelMatrix * vec4(newPosition, 1.0)).xyz;

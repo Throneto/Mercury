@@ -123,33 +123,33 @@ void main() {
 // Procedural Studio Lighting Environment
 // Generates a high-contrast environment map with softbox look
 vec3 getStudioEnvironment(vec3 dir) {
-    // Top light (Softbox)
-    float topLight = smoothstep(0.6, 0.8, dir.y);
+    // Top light (Softbox) - Brighter and sharper
+    float topLight = smoothstep(0.65, 0.85, dir.y);
     
     // Horizon line (sharp contrast)
-    float horizon = smoothstep(-0.1, 0.1, dir.y) * 
-                  (1.0 - smoothstep(0.1, 0.2, dir.y));
+    float horizon = smoothstep(-0.05, 0.05, dir.y) * 
+                  (1.0 - smoothstep(0.05, 0.15, dir.y));
     
-    // Rim lights (sides)
-    float rim = pow(1.0 - abs(dir.y), 3.0) * 
-                smoothstep(0.5, 0.8, abs(dir.x));
+    // Rim lights (sides) - crisper
+    float rim = pow(1.0 - abs(dir.y), 4.0) * 
+                smoothstep(0.6, 0.9, abs(dir.x));
                 
-    // Bottom reflection (darker ground)
-    float bottom = smoothstep(-0.8, -0.4, -dir.y) * 0.2;
+    // Bottom reflection (pitch black ground for contrast)
+    float bottom = smoothstep(-0.8, -0.4, -dir.y) * 0.05;
     
-    vec3 color = vec3(0.05); // Ambient dark grey
-    color += vec3(1.2) * topLight; // Bright overhead
-    color += vec3(0.8) * horizon;  // Horizon strip
-    color += vec3(0.5) * rim;      // Side rims
-    color += vec3(0.1) * bottom;   // Ground
+    vec3 color = vec3(0.0); // PURE BLACK AMBIENT
+    color += vec3(2.0) * topLight; // Overexposed overhead
+    color += vec3(1.2) * horizon;  // Bright horizon
+    color += vec3(0.8) * rim;      // Side rims
+    color += vec3(0.2) * bottom;   // Subtle ground
     
-    // Cold tint for "Mercury" feel
-    return color * vec3(0.9, 0.95, 1.0);
+    // Cold, sterile tint for "Medical/Sci-Fi" Mercury
+    return color * vec3(0.95, 0.98, 1.0);
 }
 
 void main() {
-    // Discard collapsed vertices immediately
-    if (vLiquidMask < 0.01 || vDisplacement > 0.9) {
+    // HARD DISCARD for clean edges
+    if (vLiquidMask < 0.5 || vDisplacement > 0.5) {
         discard;
     }
 
@@ -158,76 +158,74 @@ void main() {
     vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
     float NdotV = max(dot(normal, viewDir), 0.0);
     
-    // --- MATERIAL PROPERTIES ---
-    // Mercury is a metal: No diffuse, High Specular, Low Roughness
-    float roughness = 0.02; // Almost perfect mirror
-    float metalness = 1.0;
-    
     // --- ENVIRONMENT MAPPING ---
-    // 1. Calculate reflection vector
     vec3 reflectDir = reflect(-viewDir, normal);
-    
-    // 2. Parallax Correction (fake depth)
-    vec3 parallax = uDeviceTilt * 0.2;
+    vec3 parallax = uDeviceTilt * 0.3; // Increased parallax for depth
     vec3 correctedReflectDir = normalize(reflectDir + parallax);
     
-    // 3. Sample Camera Texture (Sphere mapping)
-    // Convert 3D direction to 2D UV
+    // Sample Camera (Sphere mapping)
     vec2 envMapUV = vec2(
         0.5 + atan(correctedReflectDir.z, correctedReflectDir.x) / (2.0 * 3.14159),
         0.5 - asin(correctedReflectDir.y) / 3.14159
     );
     
-    // Add flow distortion to UVs
     vec2 flow = liquidFlow(vPosition, uTime);
-    envMapUV += flow * 2.0;
+    envMapUV += flow * 1.5;
     
-    // Sample camera
     vec3 cameraColor = texture2D(uCameraTexture, envMapUV).rgb;
     
-    // Desaturate camera slightly to make it look more "chrome"
+    // EXTREME Contrast process for camera feed
+    float luminance = dot(cameraColor, vec3(0.299, 0.587, 0.114));
+    // Make darks darker (black) and lights brighter
+    cameraColor = mix(vec3(0.0), cameraColor, smoothstep(0.3, 0.7, luminance)); 
+    cameraColor = pow(cameraColor, vec3(1.2)) * 1.5; // Boost exposure
+    
+    // Desaturate slightly
     float grey = dot(cameraColor, vec3(0.299, 0.587, 0.114));
-    cameraColor = mix(cameraColor, vec3(grey), 0.7); // 70% black and white
+    cameraColor = mix(cameraColor, vec3(grey), 0.5); 
     
-    // Boost contrast of camera feed
-    cameraColor = pow(cameraColor, vec3(1.5)) * 1.5;
-    
-    // 4. Sample Procedural Studio Environment
+    // Sample Studio Environment
     vec3 studioColor = getStudioEnvironment(correctedReflectDir);
     
-    // Mix Camera and Studio (50/50 gives best of both worlds: real reflections + guaranteed shine)
-    vec3 envColor = mix(studioColor, cameraColor, 0.4);
+    // Mix: Favor studio for "guaranteed" shine, use camera for detail
+    vec3 envColor = mix(studioColor, cameraColor, 0.35); // 35% Camera, 65% Studio
     
     // --- FRESNEL EFFECT ---
-    // At grazing angles, reflection is 100% white/environment
-    float fresnel = fresnelSchlick(NdotV, 0.6); // F0 = 0.6 for Chrome/Mercury
+    // Metal fresnel: Reflectivity goes from High (0.6) to Perfect (1.0)
+    float fresnel = fresnelSchlick(NdotV, 0.7); 
     
     // --- SPECULAR HIGHLIGHTS ---
-    // Strong sun/light source highlight
-    vec3 lightDir = normalize(vec3(0.5, 1.0, 1.0));
-    vec3 halfVec = normalize(lightDir + viewDir);
-    float NdotH = max(dot(normal, halfVec), 0.0);
-    float specular = pow(NdotH, 128.0) * 2.0; // Sharp highlight
+    // Multiple sharp lights for "jewelry" look
+    vec3 lightDir1 = normalize(vec3(0.5, 1.0, 1.0));
+    vec3 halfVec1 = normalize(lightDir1 + viewDir);
+    float specular1 = pow(max(dot(normal, halfVec1), 0.0), 256.0) * 3.0; // Point light
     
-    // Add a second rim light
-    vec3 rimLightDir = normalize(vec3(-1.0, 0.0, -0.5));
-    vec3 rimHalfVec = normalize(rimLightDir + viewDir);
-    float rimSpecular = pow(max(dot(normal, rimHalfVec), 0.0), 64.0);
+    vec3 lightDir2 = normalize(vec3(-0.8, 0.2, 0.5));
+    vec3 halfVec2 = normalize(lightDir2 + viewDir);
+    float specular2 = pow(max(dot(normal, halfVec2), 0.0), 128.0) * 1.5;
     
     // --- FINAL COMPOSITION ---
+    // BASE COLOR IS BLACK. PURE REFLECTION.
     vec3 finalColor = vec3(0.0);
     
-    // Reflection is the main component
-    finalColor += envColor * (0.2 + fresnel * 0.8);
+    // Add Reflections
+    finalColor += envColor * fresnel;
     
-    // Add specular highlights on top
-    finalColor += vec3(1.0) * specular;
-    finalColor += vec3(0.8) * rimSpecular;
+    // Add Highlights
+    finalColor += vec3(1.0) * (specular1 + specular2);
     
-    // Add edge darkening (Ambient Occlusion approximation)
-    float edgeAO = smoothstep(0.0, 0.3, NdotV);
-    finalColor *= (0.8 + 0.2 * edgeAO);
-
+    // Tone mapping (ACEs approximate)
+    finalColor *= 1.2; // Exposure boost
+    vec3 x = max(vec3(0.0), finalColor - 0.004);
+    vec3 retColor = (x * (6.2 * x + 0.5)) / (x * (6.2 * x + 1.7) + 0.06);
+    finalColor = retColor;
+    
+    // Gamma
+    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    
+    // --- EDGE HANDLING ---
+    // No soft fade transparency. It's metal. It's either there or it's not.
+    // We already discarded, so set alpha to 1.0 for solid look.
     gl_FragColor = vec4(finalColor, 1.0);
 }
 
