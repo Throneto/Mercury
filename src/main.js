@@ -20,9 +20,6 @@ class MercuryApp {
         this.renderer = null;
         this.mesh = null;
         this.material = null;
-        this.glassContainer = null;
-        this.containerParts = null;
-        this.levelLine = null;
 
         this.cameraStream = null;
         this.videoTexture = null;
@@ -32,14 +29,21 @@ class MercuryApp {
         this.clock = new THREE.Clock();
         this.isRunning = false;
 
+        // Drag state
+        this.isDragging = false;
+        this.dragStart = { x: 0, y: 0 };
+        this.cardPosition = { x: 0, y: 0 };
+
         // Configuration
         this.config = {
-            fillLevel: 0.0, // 1/2 filled - liquid level at center (y=0)
-            waveIntensity: 0.15, // Increased for more visible flow
-            sphereDetail: 128
+            fillLevel: -0.5, // Mercury fills lower portion
+            waveIntensity: 0.18,
+            sphereDetail: 96
         };
 
         // DOM elements
+        this.phoneCard = document.getElementById('phone-card');
+        this.canvasContainer = document.getElementById('canvas-container');
         this.canvas = document.getElementById('mercury-canvas');
         this.permissionOverlay = document.getElementById('permission-overlay');
         this.loadingOverlay = document.getElementById('loading-overlay');
@@ -49,12 +53,66 @@ class MercuryApp {
         this.retryBtn = document.getElementById('retry-btn');
 
         this.bindEvents();
+        this.initDrag();
     }
 
     bindEvents() {
         this.startBtn.addEventListener('click', () => this.start());
         this.retryBtn.addEventListener('click', () => this.start());
         window.addEventListener('resize', () => this.onResize());
+    }
+
+    initDrag() {
+        const card = this.phoneCard;
+
+        // Mouse events
+        card.addEventListener('mousedown', (e) => this.onDragStart(e));
+        document.addEventListener('mousemove', (e) => this.onDragMove(e));
+        document.addEventListener('mouseup', () => this.onDragEnd());
+
+        // Touch events
+        card.addEventListener('touchstart', (e) => this.onDragStart(e), { passive: false });
+        document.addEventListener('touchmove', (e) => this.onDragMove(e), { passive: false });
+        document.addEventListener('touchend', () => this.onDragEnd());
+    }
+
+    onDragStart(e) {
+        // Don't drag if clicking on canvas (for mercury interaction)
+        if (e.target === this.canvas) return;
+
+        this.isDragging = true;
+        this.phoneCard.classList.add('dragging');
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const rect = this.phoneCard.getBoundingClientRect();
+        this.dragStart.x = clientX - rect.left - rect.width / 2;
+        this.dragStart.y = clientY - rect.top - rect.height / 2;
+    }
+
+    onDragMove(e) {
+        if (!this.isDragging) return;
+
+        e.preventDefault();
+
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+
+        const x = clientX - this.dragStart.x - this.phoneCard.offsetWidth / 2;
+        const y = clientY - this.dragStart.y - this.phoneCard.offsetHeight / 2;
+
+        this.cardPosition.x = x;
+        this.cardPosition.y = y;
+
+        this.phoneCard.style.left = `${x}px`;
+        this.phoneCard.style.top = `${y}px`;
+        this.phoneCard.style.transform = 'none';
+    }
+
+    onDragEnd() {
+        this.isDragging = false;
+        this.phoneCard.classList.remove('dragging');
     }
 
     async start() {
@@ -70,7 +128,7 @@ class MercuryApp {
             // Create mercury sphere
             await this.createMercury();
 
-            // Bind touch events
+            // Bind touch events to canvas for mercury interaction
             this.touchManager.bind(this.canvas);
 
             // Start sensors
@@ -107,22 +165,31 @@ class MercuryApp {
         this.scene = new THREE.Scene();
         this.scene.background = new THREE.Color(0x0a0a0f);
 
-        // Camera
-        const aspect = window.innerWidth / window.innerHeight;
-        this.camera = new THREE.PerspectiveCamera(45, aspect, 0.1, 100);
-        this.camera.position.z = 3;
+        // Get canvas container dimensions
+        const container = this.canvasContainer;
+        const width = container.clientWidth;
+        const height = container.clientHeight;
 
-        // Renderer
+        // Camera - adjust for phone card aspect ratio
+        const aspect = width / height;
+        this.camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 100);
+        this.camera.position.z = 2.5;
+
+        // Renderer - sized to canvas container
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
             alpha: false
         });
-        this.renderer.setSize(window.innerWidth, window.innerHeight);
+        this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     }
 
     async createMercury() {
+        // Get container dimensions for resolution uniform
+        const width = this.canvasContainer.clientWidth;
+        const height = this.canvasContainer.clientHeight;
+
         // Create sphere geometry with high detail for smooth deformation
         const geometry = new THREE.SphereGeometry(1, this.config.sphereDetail, this.config.sphereDetail);
 
@@ -135,7 +202,7 @@ class MercuryApp {
                 uGravity: { value: new THREE.Vector3(0, -1, 0) },
                 uTouchPoints: { value: new Array(5).fill(new THREE.Vector4(0, 0, 0, 0)) },
                 uCameraTexture: { value: this.videoTexture },
-                uResolution: { value: new THREE.Vector2(window.innerWidth, window.innerHeight) },
+                uResolution: { value: new THREE.Vector2(width, height) },
                 uWaveIntensity: { value: this.config.waveIntensity },
                 uFillLevel: { value: this.config.fillLevel },
                 uCameraPosition: { value: this.camera.position }
@@ -144,66 +211,6 @@ class MercuryApp {
 
         this.mesh = new THREE.Mesh(geometry, this.material);
         this.scene.add(this.mesh);
-
-        // Create glass container frame
-        this.createGlassContainer();
-    }
-
-    createGlassContainer() {
-        const containerHeight = 2.4;
-        const containerRadius = 1.15;
-        const glassThickness = 0.02;
-
-        // Glass cylinder (wireframe style for visibility)
-        const cylinderGeometry = new THREE.CylinderGeometry(
-            containerRadius, containerRadius, containerHeight, 64, 1, true
-        );
-
-        // Glass material - subtle transparent effect
-        const glassMaterial = new THREE.MeshBasicMaterial({
-            color: 0x8899aa,
-            transparent: true,
-            opacity: 0.08,
-            side: THREE.DoubleSide,
-            depthWrite: false
-        });
-
-        this.glassContainer = new THREE.Mesh(cylinderGeometry, glassMaterial);
-        this.scene.add(this.glassContainer);
-
-        // Top rim ring
-        const rimGeometry = new THREE.TorusGeometry(containerRadius, glassThickness, 8, 64);
-        const rimMaterial = new THREE.MeshBasicMaterial({
-            color: 0xaabbcc,
-            transparent: true,
-            opacity: 0.4
-        });
-
-        const topRim = new THREE.Mesh(rimGeometry, rimMaterial);
-        topRim.rotation.x = Math.PI / 2;
-        topRim.position.y = containerHeight / 2;
-        this.scene.add(topRim);
-
-        // Bottom rim ring
-        const bottomRim = new THREE.Mesh(rimGeometry, rimMaterial.clone());
-        bottomRim.rotation.x = Math.PI / 2;
-        bottomRim.position.y = -containerHeight / 2;
-        this.scene.add(bottomRim);
-
-        // Fill level indicator line
-        const levelLineGeometry = new THREE.TorusGeometry(containerRadius + 0.01, 0.005, 4, 64);
-        const levelLineMaterial = new THREE.MeshBasicMaterial({
-            color: 0x66aaff,
-            transparent: true,
-            opacity: 0.5
-        });
-        this.levelLine = new THREE.Mesh(levelLineGeometry, levelLineMaterial);
-        this.levelLine.rotation.x = Math.PI / 2;
-        this.levelLine.position.y = this.config.fillLevel;
-        this.scene.add(this.levelLine);
-
-        // Store references for disposal
-        this.containerParts = [this.glassContainer, topRim, bottomRim, this.levelLine];
     }
 
     animate() {
@@ -241,10 +248,10 @@ class MercuryApp {
     }
 
     onResize() {
-        if (!this.camera || !this.renderer) return;
+        if (!this.camera || !this.renderer || !this.canvasContainer) return;
 
-        const width = window.innerWidth;
-        const height = window.innerHeight;
+        const width = this.canvasContainer.clientWidth;
+        const height = this.canvasContainer.clientHeight;
 
         this.camera.aspect = width / height;
         this.camera.updateProjectionMatrix();
@@ -294,14 +301,6 @@ class MercuryApp {
 
         if (this.mesh && this.mesh.geometry) {
             this.mesh.geometry.dispose();
-        }
-
-        // Dispose container parts
-        if (this.containerParts) {
-            this.containerParts.forEach(part => {
-                if (part.geometry) part.geometry.dispose();
-                if (part.material) part.material.dispose();
-            });
         }
     }
 }
