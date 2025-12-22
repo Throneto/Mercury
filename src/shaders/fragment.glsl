@@ -120,148 +120,114 @@ void main() {
     float bChannel = texture2D(uCameraTexture, clamp(uvBlue + reflectDistort, 0.0, 1.0)).b;
     vec4 cameraColor = vec4(rChannel, gChannel, bChannel, 1.0);
     
-    // Create high-contrast environment gradient for chrome
-    // Using smoothstep instead of if-else for Safari compatibility
-    float envY = normal.y * 0.5 + 0.5;
+// Procedural Studio Lighting Environment
+// Generates a high-contrast environment map with softbox look
+vec3 getStudioEnvironment(vec3 dir) {
+    // Top light (Softbox)
+    float topLight = smoothstep(0.6, 0.8, dir.y);
     
-    // Blend factors for smooth transitions
-    float upperBlend = smoothstep(0.55, 0.65, envY);
-    float midBlend = smoothstep(0.25, 0.35, envY);
+    // Horizon line (sharp contrast)
+    float horizon = smoothstep(-0.1, 0.1, dir.y) * 
+                  (1.0 - smoothstep(0.1, 0.2, dir.y));
     
-    // Calculate environment color using smooth blending
-    vec3 envColor = mix(envBottom, envMid, midBlend);
-    envColor = mix(envColor, mix(envMid, envTop, (envY - 0.6) * 2.5), upperBlend);
+    // Rim lights (sides)
+    float rim = pow(1.0 - abs(dir.y), 3.0) * 
+                smoothstep(0.5, 0.8, abs(dir.x));
+                
+    // Bottom reflection (darker ground)
+    float bottom = smoothstep(-0.8, -0.4, -dir.y) * 0.2;
     
-    // Subtle flowing environment pattern
-    float envFlow = sin(normal.x * 8.0 + uTime * 0.25) * 
-                    sin(normal.y * 6.0 + uTime * 0.3) * 0.08;
-    envColor *= (1.0 + envFlow);
+    vec3 color = vec3(0.05); // Ambient dark grey
+    color += vec3(1.2) * topLight; // Bright overhead
+    color += vec3(0.8) * horizon;  // Horizon strip
+    color += vec3(0.5) * rim;      // Side rims
+    color += vec3(0.1) * bottom;   // Ground
     
-    // Blend camera with environment - stronger camera influence for chrome
-    float cameraBrightness = dot(cameraColor.rgb, vec3(0.299, 0.587, 0.114));
-    float cameraInfluence = smoothstep(0.02, 0.35, cameraBrightness);
-    vec3 reflectionColor = mix(envColor, cameraColor.rgb * 1.3, cameraInfluence);
+    // Cold tint for "Mercury" feel
+    return color * vec3(0.9, 0.95, 1.0);
+}
+
+void main() {
+    // Discard collapsed vertices immediately
+    if (vLiquidMask < 0.01 || vDisplacement > 0.9) {
+        discard;
+    }
+
+    // Normalize the interpolated normal
+    vec3 normal = normalize(vNormal);
+    vec3 viewDir = normalize(uCameraPosition - vWorldPosition);
+    float NdotV = max(dot(normal, viewDir), 0.0);
     
-    // Boost contrast in reflections for chrome effect
-    reflectionColor = pow(reflectionColor, vec3(0.9)) * 1.1;
+    // --- MATERIAL PROPERTIES ---
+    // Mercury is a metal: No diffuse, High Specular, Low Roughness
+    float roughness = 0.02; // Almost perfect mirror
+    float metalness = 1.0;
     
-    // === MULTIPLE SPECULAR LIGHTS FOR CHROME LUSTER ===
+    // --- ENVIRONMENT MAPPING ---
+    // 1. Calculate reflection vector
+    vec3 reflectDir = reflect(-viewDir, normal);
     
-    // Primary key light - extremely sharp for chrome
-    vec3 lightDir1 = normalize(vec3(0.7, 1.0, 0.5));
-    vec3 halfDir1 = normalize(lightDir1 + viewDir);
-    float spec1 = distributionGGX(normal, halfDir1, 0.015) * 1.5; // Ultra-sharp
+    // 2. Parallax Correction (fake depth)
+    vec3 parallax = uDeviceTilt * 0.2;
+    vec3 correctedReflectDir = normalize(reflectDir + parallax);
     
-    // Secondary fill light - also sharp
-    vec3 lightDir2 = normalize(vec3(-0.5, 0.6, 0.7));
-    vec3 halfDir2 = normalize(lightDir2 + viewDir);
-    float spec2 = distributionGGX(normal, halfDir2, 0.025) * 0.8;
-    
-    // Rim light - sharp edge highlights
-    vec3 lightDir3 = normalize(vec3(0.0, 0.2, -1.0));
-    vec3 halfDir3 = normalize(lightDir3 + viewDir);
-    float spec3 = distributionGGX(normal, halfDir3, 0.02) * 0.6;
-    
-    // Bottom bounce light for chrome depth
-    vec3 lightDir4 = normalize(vec3(0.3, -0.8, 0.4));
-    vec3 halfDir4 = normalize(lightDir4 + viewDir);
-    float spec4 = distributionGGX(normal, halfDir4, 0.04) * 0.3;
-    
-    // Flowing highlight - creates liquid metal movement effect
-    vec3 flowingLightDir = normalize(vec3(
-        sin(uTime * 0.5) * 0.4,
-        0.85 + sin(uTime * 0.3) * 0.1,
-        cos(uTime * 0.4) * 0.4
-    ));
-    vec3 flowingHalfDir = normalize(flowingLightDir + viewDir);
-    float flowingSpec = distributionGGX(normal, flowingHalfDir, 0.02) * 0.7;
-    
-    // Combine all specular with geometry term
-    float geom = geometrySchlickGGX(NdotV, 0.02);
-    float totalSpec = (spec1 + spec2 + spec3 + spec4 + flowingSpec) * geom;
-    vec3 specularColor = mercuryHighlight * totalSpec;
-    
-    // === SECONDARY GLINT LAYER (Reactive 3D Highlight) ===
-    // Sharp highlights that move with device tilt (simulating fixed external lights)
-    // This creates the "live" 3D feel when tilting
-    vec3 tiltLightDir = normalize(vec3(uDeviceTilt.x, uDeviceTilt.y, 1.0));
-    vec3 glintHalf = normalize(tiltLightDir + viewDir);
-    float glintSpec = pow(max(dot(normal, glintHalf), 0.0), 120.0) * 0.8; // Ultra sharp
-    specularColor += mercuryHighlight * glintSpec;
-    
-    // === SUBTLE CAUSTIC PATTERNS FOR LIQUID FLOW ===
-    float causticPattern = caustic(vPosition.xy, uTime * 0.6);
-    causticPattern = causticPattern * 0.5 + 0.5;
-    causticPattern = pow(causticPattern, 2.5) * 0.08; // More subtle for chrome
-    
-    // === AMBIENT OCCLUSION - Enhanced for depth ===
-    float ao = 1.0 - vDisplacement * 1.5;
-    // Darken the "neck" areas where metaballs merge (high liquid mask gradient)
-    float neckShadow = smoothstep(0.3, 0.6, vLiquidMask) * (1.0 - smoothstep(0.6, 0.9, vLiquidMask));
-    ao -= neckShadow * 0.4; 
-    
-    ao = clamp(ao, 0.3, 1.0);
-    ao = pow(ao, 0.8);
-    
-    // === EDGE FRESNEL - strong bright edges for chrome ===
-    float edgeFresnel = pow(1.0 - NdotV, 4.0) * 0.6;
-    
-    // === COMBINE ALL LIGHTING ===
-    
-    // Base mercury color - strong contrast like real mercury droplets
-    vec3 baseColor = mix(mercuryDark, mercuryBase, ao);
-    baseColor = mix(baseColor, mercuryBright, 0.3);
-    
-    // Apply reflection with very strong fresnel (chrome is almost 100% reflective)
-    vec3 finalColor = mix(baseColor * 0.15, reflectionColor, fresnel);
-    
-    // Add powerful specular highlights
-    finalColor += specularColor;
-    
-    // Add subtle caustic patterns for liquid feel
-    finalColor += mercuryHighlight * causticPattern * fresnel * 0.5;
-    
-    // Add bright edge fresnel like real mercury
-    finalColor += mercuryHighlight * edgeFresnel;
-    
-    // Very subtle color variation for liquid depth (reduced iridescence)
-    vec3 liquidVariation = vec3(
-        0.5 + 0.5 * sin(vPosition.x * 6.0 + uTime * 0.3),
-        0.5 + 0.5 * sin(vPosition.y * 6.0 + uTime * 0.35),
-        0.5 + 0.5 * sin(vPosition.z * 6.0 + uTime * 0.4 + 1.0)
+    // 3. Sample Camera Texture (Sphere mapping)
+    // Convert 3D direction to 2D UV
+    vec2 envMapUV = vec2(
+        0.5 + atan(correctedReflectDir.z, correctedReflectDir.x) / (2.0 * 3.14159),
+        0.5 - asin(correctedReflectDir.y) / 3.14159
     );
-    finalColor += liquidVariation * 0.015 * (1.0 - NdotV);
     
-    // Flowing light streaks for liquid metal movement
-    float streak = sin(vPosition.x * 12.0 + vPosition.y * 8.0 + uTime * 1.2) * 0.5 + 0.5;
-    streak = pow(streak, 8.0) * 0.15 * (0.5 + 0.5 * sin(uTime * 0.8));
-    finalColor += mercuryHighlight * streak * fresnel;
+    // Add flow distortion to UVs
+    vec2 flow = liquidFlow(vPosition, uTime);
+    envMapUV += flow * 2.0;
     
-    // Boost brightness for chrome brilliance
-    finalColor *= 1.25;
+    // Sample camera
+    vec3 cameraColor = texture2D(uCameraTexture, envMapUV).rgb;
     
-    // ACES-like tone mapping for HDR handling
-    vec3 tonemapA = finalColor * (finalColor + 0.0245786) - 0.000090537;
-    vec3 tonemapB = finalColor * (0.983729 * finalColor + 0.4329510) + 0.238081;
-    finalColor = tonemapA / tonemapB;
+    // Desaturate camera slightly to make it look more "chrome"
+    float grey = dot(cameraColor, vec3(0.299, 0.587, 0.114));
+    cameraColor = mix(cameraColor, vec3(grey), 0.7); // 70% black and white
     
-    // Gamma correction
-    finalColor = pow(finalColor, vec3(1.0 / 2.2));
+    // Boost contrast of camera feed
+    cameraColor = pow(cameraColor, vec3(1.5)) * 1.5;
     
-    // Discard collapsed/empty vertices (vDisplacement > 0.5 indicates collapsed area)
-    // DEBUG: Commented out discard to see if geometry is rendering at all
-    // if (vLiquidMask < 0.05) {
-    //    discard;
-    // }
+    // 4. Sample Procedural Studio Environment
+    vec3 studioColor = getStudioEnvironment(correctedReflectDir);
     
-    // Smooth edge transition using liquid mask
-    float edgeAlpha = smoothstep(0.0, 0.25, vLiquidMask);
-    float collapseAlpha = 1.0 - smoothstep(0.5, 0.8, vDisplacement);
-    float alpha = min(edgeAlpha, collapseAlpha);
+    // Mix Camera and Studio (50/50 gives best of both worlds: real reflections + guaranteed shine)
+    vec3 envColor = mix(studioColor, cameraColor, 0.4);
     
-    // DEBUG: Force alpha to be visible if it was discarding
-    alpha = max(alpha, 0.1);
+    // --- FRESNEL EFFECT ---
+    // At grazing angles, reflection is 100% white/environment
+    float fresnel = fresnelSchlick(NdotV, 0.6); // F0 = 0.6 for Chrome/Mercury
     
-    gl_FragColor = vec4(finalColor, alpha);
+    // --- SPECULAR HIGHLIGHTS ---
+    // Strong sun/light source highlight
+    vec3 lightDir = normalize(vec3(0.5, 1.0, 1.0));
+    vec3 halfVec = normalize(lightDir + viewDir);
+    float NdotH = max(dot(normal, halfVec), 0.0);
+    float specular = pow(NdotH, 128.0) * 2.0; // Sharp highlight
+    
+    // Add a second rim light
+    vec3 rimLightDir = normalize(vec3(-1.0, 0.0, -0.5));
+    vec3 rimHalfVec = normalize(rimLightDir + viewDir);
+    float rimSpecular = pow(max(dot(normal, rimHalfVec), 0.0), 64.0);
+    
+    // --- FINAL COMPOSITION ---
+    vec3 finalColor = vec3(0.0);
+    
+    // Reflection is the main component
+    finalColor += envColor * (0.2 + fresnel * 0.8);
+    
+    // Add specular highlights on top
+    finalColor += vec3(1.0) * specular;
+    finalColor += vec3(0.8) * rimSpecular;
+    
+    // Add edge darkening (Ambient Occlusion approximation)
+    float edgeAO = smoothstep(0.0, 0.3, NdotV);
+    finalColor *= (0.8 + 0.2 * edgeAO);
+
+    gl_FragColor = vec4(finalColor, 1.0);
 }
 

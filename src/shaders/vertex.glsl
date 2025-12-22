@@ -147,8 +147,8 @@ void main() {
     float field = metaballField(position, gravityDir, uTime, uVelocity);
     
     // Convert SDF to visibility: negative = inside liquid, positive = outside
-    // Use smooth transition for organic edge
-    float liquidMask = 1.0 - smoothstep(-0.15, 0.1, field);
+    // Use sharp transition for mask to avoid ghostly edges
+    float liquidMask = 1.0 - smoothstep(-0.1, 0.0, field);
     vLiquidMask = liquidMask;
     
     // Start with original position
@@ -159,7 +159,7 @@ void main() {
     waveNoise += snoise(position * 6.0 + uTime * 0.7) * 0.015;
     
     // Deform vertices based on field value
-    if (field < 0.2) {
+    if (field < 0.1) {
         // Inside or near liquid surface - apply wave displacement
         float surfaceDisplace = waveNoise * liquidMask;
         
@@ -170,31 +170,37 @@ void main() {
         // Combine displacements along normal
         vec3 displacement = normal * (surfaceDisplace + pooling * 0.05);
         newPosition += displacement;
-        vDisplacement = length(displacement);
+        
+        // Mark as valid liquid (0.0 means "not collapsed")
+        vDisplacement = 0.0;
     } else {
         // Outside liquid - collapse vertices toward center
-        // This creates the metaball-like shape
-        float collapseAmount = smoothstep(0.1, 0.5, field);
-        newPosition = mix(position, gravityDir * 0.6, collapseAmount);
-        vDisplacement = collapseAmount;
-        vLiquidMask = 1.0 - collapseAmount;
+        // Collapse completely to a single point to hide them
+        newPosition = vec3(0.0);
+        
+        // Mark as collapsed (1.0 means "fully collapsed")
+        vDisplacement = 1.0;
+        vLiquidMask = 0.0;
     }
     
-    // Apply touch point interactions (using arithmetic instead of branching for Safari compatibility)
-    for (int i = 0; i < 5; i++) {
-        vec4 touch = uTouchPoints[i];
-        vec3 touchPos = touch.xyz;
-        float touchStrength = touch.w;
-        
-        float dist = length(newPosition - touchPos);
-        float influence = exp(-dist * dist * 8.0) * touchStrength * 0.15;
-        
-        // Push liquid away from touch point (influence is 0 when touchStrength is 0)
-        vec3 pushDir = normalize(newPosition - touchPos + vec3(0.0001)); // Avoid zero division
-        newPosition += pushDir * influence;
+    // Apply touch point interactions
+    if (vDisplacement < 0.5) { // Only affect valid liquid
+        for (int i = 0; i < 5; i++) {
+            vec4 touch = uTouchPoints[i];
+            vec3 touchPos = touch.xyz;
+            float touchStrength = touch.w;
+            
+            float dist = length(newPosition - touchPos);
+            float influence = exp(-dist * dist * 8.0) * touchStrength * 0.15;
+            
+            vec3 pushDir = normalize(newPosition - touchPos + vec3(0.0001));
+            newPosition += pushDir * influence;
+        }
     }
     
     // Calculate final normal after deformation
+    // For collapsed vertices, normal doesn't matter (they are discarded/invisible)
+    // For liquid, we want the organic normal
     vNormal = normalize(normalMatrix * normal);
     vPosition = newPosition;
     vWorldPosition = (modelMatrix * vec4(newPosition, 1.0)).xyz;
