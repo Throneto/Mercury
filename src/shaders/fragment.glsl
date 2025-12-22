@@ -81,8 +81,15 @@ void main() {
     // Chrome has extremely high reflectivity (F0 = 0.95+)
     float fresnel = fresnelSchlick(NdotV, 0.95);
     
-    // Calculate reflection UV with liquid flow distortion
+    // CHROMATIC ABERRATION (Dispersion)
+    // Simulate slight lens dispersion at edges for realism
     vec2 screenUV = gl_FragCoord.xy / uResolution;
+    
+    // Calculate 3 separate lookup UVs for RGB channels
+    float aberrationStrength = 0.005 * (1.0 + fresnel * 2.0); // Stronger at edges
+    vec2 uvRed = screenUV + aberrationStrength * vec2(1.0, 0.0);
+    vec2 uvGreen = screenUV; // Center
+    vec2 uvBlue = screenUV - aberrationStrength * vec2(1.0, 0.0);
     
     // Liquid flow animation - smooth and elegant
     vec2 flowOffset = liquidFlow(vPosition, uTime);
@@ -98,8 +105,13 @@ void main() {
     reflectUV = clamp(reflectUV, 0.0, 1.0);
     reflectUV.x = 1.0 - reflectUV.x;
     
-    // Sample camera texture
-    vec4 cameraColor = texture2D(uCameraTexture, reflectUV);
+    // Sample camera texture with dispersion
+    // Normal-based distortion for reflection
+    vec2 reflectDistort = normal.xy * 0.12;
+    float r = texture2D(uCameraTexture, clamp(uvRed + reflectDistort, 0.0, 1.0)).r;
+    float g = texture2D(uCameraTexture, clamp(uvGreen + reflectDistort, 0.0, 1.0)).g;
+    float b = texture2D(uCameraTexture, clamp(uvBlue + reflectDistort, 0.0, 1.0)).b;
+    vec4 cameraColor = vec4(r, g, b, 1.0);
     
     // Create high-contrast environment gradient for chrome
     float envY = normal.y * 0.5 + 0.5;
@@ -168,10 +180,14 @@ void main() {
     causticPattern = causticPattern * 0.5 + 0.5;
     causticPattern = pow(causticPattern, 2.5) * 0.08; // More subtle for chrome
     
-    // === AMBIENT OCCLUSION - subtle for chrome ===
-    float ao = 1.0 - vDisplacement * 1.2;
-    ao = clamp(ao, 0.5, 1.0);
-    ao = pow(ao, 0.7);
+    // === AMBIENT OCCLUSION - Enhanced for depth ===
+    float ao = 1.0 - vDisplacement * 1.5;
+    // Darken the "neck" areas where metaballs merge (high liquid mask gradient)
+    float neckShadow = smoothstep(0.3, 0.6, vLiquidMask) * (1.0 - smoothstep(0.6, 0.9, vLiquidMask));
+    ao -= neckShadow * 0.4; 
+    
+    ao = clamp(ao, 0.3, 1.0);
+    ao = pow(ao, 0.8);
     
     // === EDGE FRESNEL - strong bright edges for chrome ===
     float edgeFresnel = pow(1.0 - NdotV, 4.0) * 0.6;

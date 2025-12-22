@@ -71,9 +71,9 @@ uniform float uTime;
 uniform vec3 uGravity;          // Current gravity (with inertia applied from JS)
 uniform vec3 uTargetGravity;    // Target gravity direction
 uniform vec4 uTouchPoints[5];
-uniform float uWaveIntensity;
 uniform float uFillLevel;
 uniform float uFlowSpeed;       // Flow speed multiplier (0.0 - 1.0)
+uniform vec3 uVelocity;         // Velocity from spring physics for stretching
 
 // Varyings
 varying vec3 vNormal;
@@ -97,37 +97,43 @@ float sdSphere(vec3 p, vec3 center, float radius) {
 
 // Compute metaball field value at a point
 // Multiple blob centers create organic fusion effect
-float metaballField(vec3 p, vec3 gravityDir, float time) {
+float metaballField(vec3 p, vec3 gravityDir, float time, vec3 velocity) {
     // Main liquid pool at gravity direction
     vec3 poolCenter = gravityDir * 0.55;
     float poolRadius = 0.8;
     float mainPool = sdSphere(p, poolCenter, poolRadius);
     
+    // Inertia lag effect: blobs trail behind movement
+    vec3 lagOffset = -velocity * 0.3;
+    
     // Secondary blobs for organic feel - positioned around the pool
-    vec3 blobOffset1 = gravityDir * 0.3 + vec3(
+    vec3 blobOffset1 = gravityDir * 0.3 + lagOffset * 1.2 + vec3(
         sin(time * 0.3) * 0.15,
         cos(time * 0.25) * 0.1,
         sin(time * 0.35) * 0.12
     );
     float blob1 = sdSphere(p, poolCenter + blobOffset1, 0.35);
     
-    vec3 blobOffset2 = gravityDir * 0.25 + vec3(
+    vec3 blobOffset2 = gravityDir * 0.25 + lagOffset * 0.8 + vec3(
         cos(time * 0.28) * 0.12,
         sin(time * 0.32) * 0.15,
         cos(time * 0.22) * 0.1
     );
     float blob2 = sdSphere(p, poolCenter + blobOffset2, 0.3);
     
-    // Tertiary small blobs for surface detail
-    vec3 blobOffset3 = gravityDir * 0.15 + vec3(
+    // Tertiary small blobs for surface detail - more sensitive to velocity
+    vec3 blobOffset3 = gravityDir * 0.15 + lagOffset * 1.5 + vec3(
         sin(time * 0.4 + 1.0) * 0.1,
         cos(time * 0.35 + 0.5) * 0.08,
         sin(time * 0.45) * 0.12
     );
     float blob3 = sdSphere(p, poolCenter + blobOffset3, 0.2);
     
-    // Smooth blend all blobs together - larger k = smoother fusion
-    float blendK = 0.4;
+    // Smooth blend all blobs together - dynamic k based on speed
+    // Higher speed = less fusion (blobs separate slightly)
+    float speed = length(velocity);
+    float blendK = max(0.25, 0.4 - speed * 0.5);
+    
     float field = smin(mainPool, blob1, blendK);
     field = smin(field, blob2, blendK);
     field = smin(field, blob3, blendK * 0.8);
@@ -144,8 +150,20 @@ void main() {
     // Alignment with gravity direction
     float gravityAlignment = dot(normalize(pos), gravityDir);
     
+    // START DYNAMIC STRETCHING
+    // Stretch the domain space along velocity direction to simulate motion blur/elongation
+    vec3 p = pos;
+    float speed = length(uVelocity);
+    if (speed > 0.01) {
+        vec3 velDir = normalize(uVelocity);
+        float stretchFactor = speed * 0.5;
+        // Compress along motion
+        float proj = dot(p, velDir);
+        p -= velDir * proj * stretchFactor; 
+    }
+    
     // Calculate metaball field influence
-    float metaField = metaballField(pos, gravityDir, uTime * uFlowSpeed * 0.5);
+    float metaField = metaballField(p, gravityDir, uTime * uFlowSpeed * 0.5, uVelocity);
     
     // Convert fill level to threshold
     float collapseThreshold = uFillLevel * 2.0 - 1.0;

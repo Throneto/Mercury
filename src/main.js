@@ -35,16 +35,18 @@ class MercuryApp {
         this.cardPosition = { x: 0, y: 0 };
 
         // Configuration
+        // Configuration
         this.config = {
             fillLevel: 0.33,        // Mercury fills bottom 1/3 of the sphere
             waveIntensity: 0.18,
             sphereDetail: 96,
-            flowSpeed: 0.4,         // Flow speed multiplier (0.0-1.0)
-            gravitySmoothing: 0.03  // Inertia factor for gravity (lower = more inertia)
+            springStrength: 0.15,   // Spring stiffness for wobble
+            damping: 0.85           // Damping factor (0-1)
         };
 
-        // Smoothed gravity for inertia effect
-        this.smoothedGravity = { x: 0, y: -1, z: 0 };
+        // Physics state for wobble effect
+        this.currentGravity = new THREE.Vector3(0, -1, 0);
+        this.velocity = new THREE.Vector3(0, 0, 0);
 
         // DOM elements
         this.phoneCard = document.getElementById('phone-card');
@@ -212,8 +214,7 @@ class MercuryApp {
                 uResolution: { value: new THREE.Vector2(width, height) },
                 uWaveIntensity: { value: this.config.waveIntensity },
                 uFillLevel: { value: this.config.fillLevel },
-                uFlowSpeed: { value: this.config.flowSpeed },
-                uTargetGravity: { value: new THREE.Vector3(0, -1, 0) },
+                uVelocity: { value: new THREE.Vector3(0, 0, 0) }, // For stretching effect
                 uCameraPosition: { value: this.camera.position }
             }
         });
@@ -232,26 +233,32 @@ class MercuryApp {
         // Update uniforms
         this.material.uniforms.uTime.value = elapsed;
 
-        // Update gravity from sensors with inertia smoothing
+        // Update gravity from sensors
         const targetGravity = this.sensorManager.getGravity();
 
-        // Apply inertia: smoothly interpolate toward target gravity
-        const smoothing = this.config.gravitySmoothing;
-        this.smoothedGravity.x += (targetGravity.x - this.smoothedGravity.x) * smoothing;
-        this.smoothedGravity.y += (targetGravity.y - this.smoothedGravity.y) * smoothing;
-        this.smoothedGravity.z += (targetGravity.z - this.smoothedGravity.z) * smoothing;
+        // Spring Physics System for Jelly-like Wobble
+        const targetVec = new THREE.Vector3(targetGravity.x, targetGravity.y, targetGravity.z);
 
-        // Update uniforms with smoothed gravity
-        this.material.uniforms.uGravity.value.set(
-            this.smoothedGravity.x,
-            this.smoothedGravity.y,
-            this.smoothedGravity.z
-        );
-        this.material.uniforms.uTargetGravity.value.set(
-            targetGravity.x,
-            targetGravity.y,
-            targetGravity.z
-        );
+        // Calculate spring force: (target - current) * strength
+        const force = new THREE.Vector3()
+            .subVectors(targetVec, this.currentGravity)
+            .multiplyScalar(this.config.springStrength);
+
+        // Apply force to velocity and apply damping
+        this.velocity.add(force).multiplyScalar(this.config.damping);
+
+        // Apply velocity to current position (Euler integration)
+        this.currentGravity.add(this.velocity);
+
+        // Normalize to keep it a direction vector, but magnitude matters for wobble
+        // We pass the raw "wobbly" gravity to shader for position calculation
+
+        // Update uniforms
+        this.material.uniforms.uGravity.value.copy(this.currentGravity);
+
+        // Pass velocity for dynamic stretching (motion blur/deformation)
+        // Scale it up to make the effect visible
+        this.material.uniforms.uVelocity.value.copy(this.velocity).multiplyScalar(1.5);
 
         // Update touch points
         this.touchManager.update();
