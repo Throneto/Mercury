@@ -1,6 +1,6 @@
 /**
- * Mercury - Liquid Metal WebGL Experience
- * Main application entry point
+ * Mercury - GPU Particle Fluid System
+ * Main application entry point - Refactored for particle-based rendering
  */
 
 import '../styles.css';
@@ -8,15 +8,19 @@ import * as THREE from 'three';
 import { getCameraStream, createVideoElement, stopCameraStream } from './utils/camera.js';
 import { SensorManager } from './utils/sensors.js';
 import { TouchManager } from './utils/touch.js';
+import { ParticleSystem } from './core/ParticleSystem.js';
+import { ParticleRenderer } from './renderers/ParticleRenderer.js';
+import { FluidRenderer } from './renderers/FluidRenderer.js'; // Added FluidRenderer import
+import { ShapeManager } from './core/ShapeManager.js';
 
-// Shader sources (loaded via vite-plugin-glsl)
-import vertexShader from './shaders/vertex.glsl';
-import fragmentShader from './shaders/fragment.glsl';
+// Load shaders as raw text
+import particleUpdateShader from './shaders/particles/particle_update.vert.glsl?raw';
+import particleUpdateFragShader from './shaders/particles/particle_update.frag.glsl?raw';
+import particleRenderVert from './shaders/rendering/particle_render.vert.glsl?raw';
+import particleRenderFrag from './shaders/rendering/particle_render.frag.glsl?raw';
 
 class MercuryApp {
     constructor() {
-        // ... (existing constructor code)
-
         // Global error handler for mobile debugging
         window.onerror = (msg, url, lineNo, columnNo, error) => {
             const string = msg.toLowerCase();
@@ -36,16 +40,26 @@ class MercuryApp {
         this.scene = null;
         this.camera = null;
         this.renderer = null;
-        this.mesh = null;
-        this.material = null;
+
+        // GPU Particle System
+        this.particleSystem = null;
+        this.particleRenderer = null;
+        this.fluidRenderer = null; // Added fluidRenderer declaration
+        this.updateProgram = null;
+        this.shapeManager = null;
+
+        // Shape morphing state
+        this.currentShapeIndex = 0;
+        this.shapes = ['sphere', 'cube', 'torus', 'heart'];
+        this.shapeAttractionTarget = 0.8; // Target attraction strength
 
         this.cameraStream = null;
-        this.videoTexture = this.createFallbackTexture(); // Start with fallback
         this.sensorManager = new SensorManager();
         this.touchManager = new TouchManager(5);
 
         this.clock = new THREE.Clock();
         this.isRunning = false;
+        this.lastTime = 0;
 
         // Drag state
         this.isDragging = false;
@@ -53,18 +67,12 @@ class MercuryApp {
         this.cardPosition = { x: 0, y: 0 };
 
         // Configuration
-        // Configuration
         this.config = {
-            fillLevel: 0.33,        // Mercury fills bottom 1/3 of the sphere
-            waveIntensity: 0.18,
-            sphereDetail: 96,
-            springStrength: 0.15,   // Spring stiffness for wobble
-            damping: 0.85           // Damping factor (0-1)
+            particleCount: 30000,
+            pointSize: 8.0,  // Increased for visibility
+            damping: 0.98,
+            bounce: 0.3
         };
-
-        // Physics state for wobble effect
-        this.currentGravity = new THREE.Vector3(0, -1, 0);
-        this.velocity = new THREE.Vector3(0, 0, 0);
 
         // DOM elements
         this.phoneCard = document.getElementById('phone-card');
@@ -76,6 +84,7 @@ class MercuryApp {
         this.errorMessage = document.getElementById('error-message');
         this.startBtn = document.getElementById('start-btn');
         this.retryBtn = document.getElementById('retry-btn');
+        this.shapeSwitchBtn = document.getElementById('shape-switch-btn');
 
         this.bindEvents();
         this.initDrag();
@@ -84,6 +93,7 @@ class MercuryApp {
     bindEvents() {
         this.startBtn.addEventListener('click', () => this.start());
         this.retryBtn.addEventListener('click', () => this.start());
+        this.shapeSwitchBtn.addEventListener('click', () => this.switchToNextShape());
         window.addEventListener('resize', () => this.onResize());
     }
 
@@ -102,7 +112,6 @@ class MercuryApp {
     }
 
     onDragStart(e) {
-        // Don't drag if clicking on canvas (for mercury interaction)
         if (e.target === this.canvas) return;
 
         this.isDragging = true;
@@ -144,22 +153,23 @@ class MercuryApp {
         this.showLoading();
 
         try {
-            // Initialize Three.js first so we have something to show
+            // Initialize Three.js first
             this.initThree();
-            await this.createMercury(); // Create mercury with fallback texture
 
-            // Try to request permissions, but don't fade out if failed
+            // Create GPU particle system
+            await this.createParticleSystem();
+
+            // Try to request permissions (optional)
             try {
                 await this.requestPermissions();
             } catch (permError) {
                 console.warn('Permissions denied, running in fallback mode:', permError);
-                // Don't show error overlay, just run with fallback
             }
 
-            // Bind touch events to canvas for mercury interaction
+            // Bind touch events to canvas
             this.touchManager.bind(this.canvas);
 
-            // Start sensors (if allowed)
+            // Start sensors
             this.sensorManager.start();
 
             // Hide overlays and start animation
@@ -173,32 +183,11 @@ class MercuryApp {
         }
     }
 
-    createFallbackTexture() {
-        // Create a simple gradient canvas as fallback environment
-        const canvas = document.createElement('canvas');
-        canvas.width = 512;
-        canvas.height = 512;
-        const ctx = canvas.getContext('2d');
-
-        // Simple silver/grey gradient
-        const gradient = ctx.createLinearGradient(0, 0, 0, 512);
-        gradient.addColorStop(0.0, '#ffffff');
-        gradient.addColorStop(0.5, '#808080');
-        gradient.addColorStop(1.0, '#202020');
-
-        ctx.fillStyle = gradient;
-        ctx.fillRect(0, 0, 512, 512);
-
-        const texture = new THREE.CanvasTexture(canvas);
-        return texture;
-    }
-
     async requestPermissions() {
-        // Request camera
+        // Request camera (for future environment mapping)
         this.cameraStream = await getCameraStream(true);
         const video = await createVideoElement(this.cameraStream);
 
-        // iOS Safari fix: Video must be in DOM to play reliably
         video.style.position = 'absolute';
         video.style.width = '1px';
         video.style.height = '1px';
@@ -206,20 +195,6 @@ class MercuryApp {
         video.style.pointerEvents = 'none';
         video.style.zIndex = '-1';
         document.body.appendChild(video);
-
-        // Create video texture
-        const newTexture = new THREE.VideoTexture(video);
-        newTexture.minFilter = THREE.LinearFilter;
-        newTexture.magFilter = THREE.LinearFilter;
-        newTexture.format = THREE.RGBAFormat;
-
-        // Update texture reference
-        this.videoTexture = newTexture;
-
-        // Update material if already created
-        if (this.material) {
-            this.material.uniforms.uCameraTexture.value = this.videoTexture;
-        }
 
         // Request orientation permission (iOS)
         await this.sensorManager.requestPermission();
@@ -235,77 +210,108 @@ class MercuryApp {
         const width = container.clientWidth;
         const height = container.clientHeight;
 
-        // Camera - adjust for phone card aspect ratio
+        // Camera
         const aspect = width / height;
         this.camera = new THREE.PerspectiveCamera(50, aspect, 0.1, 100);
         this.camera.position.z = 2.5;
 
-        // Renderer - sized to canvas container
+        // Renderer - WebGL 2.0 required
         this.renderer = new THREE.WebGLRenderer({
             canvas: this.canvas,
             antialias: true,
-            alpha: false
+            alpha: false,
+            context: this.canvas.getContext('webgl2')
         });
         this.renderer.setSize(width, height);
         this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        console.log('[Mercury] Three.js initialized with WebGL 2.0');
     }
 
-    async createMercury() {
-        // Get container dimensions for resolution uniform
-        const width = this.canvasContainer.clientWidth;
-        const height = this.canvasContainer.clientHeight;
+    async createParticleSystem() {
+        console.log('[Mercury] Creating GPU particle system...');
 
-        console.log('[Mercury] Creating mercury with container size:', width, 'x', height);
+        // Create particle system
+        this.particleSystem = new ParticleSystem(this.config.particleCount);
+        this.particleSystem.init(this.renderer);
 
-        // Create sphere geometry with high detail for smooth deformation
-        const geometry = new THREE.SphereGeometry(1, this.config.sphereDetail, this.config.sphereDetail);
+        // Compile update program with Transform Feedback
+        this.updateProgram = this.compileUpdateProgram();
 
-        // Custom shader material with transparency for collapsed areas
-        this.material = new THREE.ShaderMaterial({
-            vertexShader: vertexShader,
-            fragmentShader: fragmentShader,
-            transparent: true,
-            side: THREE.DoubleSide,
-            uniforms: {
-                uTime: { value: 0 },
-                uGravity: { value: new THREE.Vector3(0, -1, 0) },
-                uTouchPoints: { value: new Array(5).fill(new THREE.Vector4(0, 0, 0, 0)) },
-                uCameraTexture: { value: this.videoTexture },
-                uResolution: { value: new THREE.Vector2(width, height) },
-                uWaveIntensity: { value: this.config.waveIntensity },
-                uFillLevel: { value: this.config.fillLevel },
-                uVelocity: { value: new THREE.Vector3(0, 0, 0) }, // For stretching effect
-                uDeviceTilt: { value: new THREE.Vector3(0, 0, 0) }, // For parallax effect
-                uCameraPosition: { value: this.camera.position }
-            }
-        });
+        // Setup Transform Feedback
+        this.particleSystem.setupTransformFeedback(this.updateProgram);
 
-        this.mesh = new THREE.Mesh(geometry, this.material);
-        this.scene.add(this.mesh);
+        // Create particle renderer (kept as fallback)
+        this.particleRenderer = new ParticleRenderer(this.particleSystem);
+        this.particleRenderer.init(this.renderer, particleRenderVert, particleRenderFrag);
+        this.particleRenderer.setPointSize(this.config.pointSize);
+        this.particleRenderer.setResolution(
+            this.canvasContainer.clientWidth,
+            this.canvasContainer.clientHeight
+        );
 
-        // Check for shader compilation errors (important for Safari debugging)
-        this.renderer.compile(this.scene, this.camera);
-
+        // Create fluid renderer (SSFR pipeline)
         const gl = this.renderer.getContext();
-        const program = this.renderer.info.programs.length > 0 ?
-            this.renderer.info.programs[0]?.program : null;
+        this.fluidRenderer = new FluidRenderer(
+            gl,
+            this.canvasContainer.clientWidth,
+            this.canvasContainer.clientHeight
+        );
 
-        if (program) {
-            const vertexShaderObj = gl.getAttachedShaders(program)?.[0];
-            const fragmentShaderObj = gl.getAttachedShaders(program)?.[1];
+        // Create shape manager
+        this.shapeManager = new ShapeManager(this.config.particleCount);
 
-            if (vertexShaderObj && !gl.getShaderParameter(vertexShaderObj, gl.COMPILE_STATUS)) {
-                console.error('[Mercury] Vertex shader error:', gl.getShaderInfoLog(vertexShaderObj));
-            }
-            if (fragmentShaderObj && !gl.getShaderParameter(fragmentShaderObj, gl.COMPILE_STATUS)) {
-                console.error('[Mercury] Fragment shader error:', gl.getShaderInfoLog(fragmentShaderObj));
-            }
-            if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-                console.error('[Mercury] Shader link error:', gl.getProgramInfoLog(program));
-            }
+        // Set initial shape (sphere)
+        const { data, size } = this.shapeManager.createTargetTexture();
+        this.particleSystem.setShapeTarget(data, size);
+        this.particleSystem.setShapeAttraction(0.0); // Start with free particles
+
+        console.log('[Mercury] GPU particle system with SSFR created successfully');
+    }
+
+    compileUpdateProgram() {
+        const gl = this.renderer.getContext();
+
+        // Compile vertex shader
+        const vertexShader = gl.createShader(gl.VERTEX_SHADER);
+        gl.shaderSource(vertexShader, particleUpdateShader);
+        gl.compileShader(vertexShader);
+
+        if (!gl.getShaderParameter(vertexShader, gl.COMPILE_STATUS)) {
+            console.error('[Mercury] Update shader error:', gl.getShaderInfoLog(vertexShader));
+            throw new Error('Update shader compilation failed');
         }
 
-        console.log('[Mercury] Mesh created and added to scene');
+        // Compile fragment shader (required for linking, even with RASTERIZER_DISCARD)
+        const fragmentShader = gl.createShader(gl.FRAGMENT_SHADER);
+        gl.shaderSource(fragmentShader, particleUpdateFragShader);
+        gl.compileShader(fragmentShader);
+
+        if (!gl.getShaderParameter(fragmentShader, gl.COMPILE_STATUS)) {
+            console.error('[Mercury] Update fragment shader error:', gl.getShaderInfoLog(fragmentShader));
+            throw new Error('Update fragment shader compilation failed');
+        }
+
+        // Create program
+        const program = gl.createProgram();
+        gl.attachShader(program, vertexShader);
+        gl.attachShader(program, fragmentShader);
+
+        // Specify Transform Feedback varyings BEFORE linking
+        gl.transformFeedbackVaryings(program, ['vPosition', 'vVelocity'], gl.SEPARATE_ATTRIBS);
+
+        // Link program
+        gl.linkProgram(program);
+
+        if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+            console.error('[Mercury] Update program link error:', gl.getProgramInfoLog(program));
+            throw new Error('Update program linking failed');
+        }
+
+        gl.deleteShader(vertexShader);
+        gl.deleteShader(fragmentShader);
+
+        return program;
     }
 
     animate() {
@@ -313,69 +319,84 @@ class MercuryApp {
 
         requestAnimationFrame(() => this.animate());
 
-        const elapsed = this.clock.getElapsedTime();
+        const currentTime = this.clock.getElapsedTime();
+        const deltaTime = Math.min(currentTime - this.lastTime, 0.033); // Cap at 30 FPS
+        this.lastTime = currentTime;
 
-        // Log first frame for debugging
-        if (elapsed < 0.1) {
-            console.log('[Mercury] Animation running, first frame at:', elapsed);
-        }
-
-        // Update uniforms
-        this.material.uniforms.uTime.value = elapsed;
+        // Update particle system uniforms
+        this.particleSystem.uniforms.uTime = currentTime;
 
         // Update gravity from sensors
-        const targetGravity = this.sensorManager.getGravity();
-        const rawGravity = this.sensorManager.getRawGravity();
-
-        // Update device tilt for parallax (no inertia)
-        this.material.uniforms.uDeviceTilt.value.set(
-            rawGravity.x,
-            rawGravity.y,
-            rawGravity.z
-        );
-
-        // Spring Physics System for Jelly-like Wobble
-        const targetVec = new THREE.Vector3(targetGravity.x, targetGravity.y, targetGravity.z);
-
-        // Calculate spring force: (target - current) * strength
-        const force = new THREE.Vector3()
-            .subVectors(targetVec, this.currentGravity)
-            .multiplyScalar(this.config.springStrength);
-
-        // Apply force to velocity and apply damping
-        this.velocity.add(force).multiplyScalar(this.config.damping);
-
-        // Apply velocity to current position (Euler integration)
-        this.currentGravity.add(this.velocity);
-
-        // Normalize to keep it a direction vector, but magnitude matters for wobble
-        // We pass the raw "wobbly" gravity to shader for position calculation
-
-        // Update uniforms
-        this.material.uniforms.uGravity.value.copy(this.currentGravity);
-
-        // Pass velocity for dynamic stretching (motion blur/deformation)
-        // Scale it up to make the effect visible
-        this.material.uniforms.uVelocity.value.copy(this.velocity).multiplyScalar(1.5);
+        const gravity = this.sensorManager.getGravity();
+        this.particleSystem.setGravity(gravity.x, gravity.y, gravity.z);
 
         // Update touch points
         this.touchManager.update();
         const touchData = this.touchManager.getUniformData();
+        const touchPoints = [];
         for (let i = 0; i < 5; i++) {
-            this.material.uniforms.uTouchPoints.value[i] = new THREE.Vector4(
+            touchPoints.push(new THREE.Vector4(
                 touchData[i * 4 + 0],
                 touchData[i * 4 + 1],
                 touchData[i * 4 + 2],
                 touchData[i * 4 + 3]
+            ));
+        }
+        this.particleSystem.setTouchPoints(touchPoints);
+
+        // Gradually increase shape attraction (smooth morph)
+        const currentAttraction = this.particleSystem.uniforms.uShapeAttraction;
+        if (currentAttraction < this.shapeAttractionTarget) {
+            const newAttraction = Math.min(
+                currentAttraction + deltaTime * 0.5, // Speed: 0.5/sec
+                this.shapeAttractionTarget
             );
+            this.particleSystem.setShapeAttraction(newAttraction);
         }
 
-        // Subtle rotation for visual interest
-        this.mesh.rotation.y = Math.sin(elapsed * 0.1) * 0.05;
-        this.mesh.rotation.x = Math.cos(elapsed * 0.15) * 0.03;
+        // Update particles using Transform Feedback
+        this.particleSystem.update(deltaTime, this.updateProgram);
 
-        // Render
-        this.renderer.render(this.scene, this.camera);
+        // Update camera matrices (required for custom rendering)
+        this.camera.updateMatrixWorld();
+        this.camera.updateProjectionMatrix();
+
+        // Clear canvas before rendering fluid
+        const gl = this.renderer.getContext();
+        gl.clearColor(0.039, 0.039, 0.059, 1.0); // #0a0a0f - dark background
+        gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+
+        // Render fluid surface using SSFR
+        this.renderer.autoClear = false;
+        this.fluidRenderer.render(
+            this.particleSystem.getCurrentBuffer(),
+            this.config.particleCount,
+            this.camera
+        );
+
+        // Note: particleRenderer disabled to show pure SSFR fluid effect
+        // Uncomment below line to show debug particles
+        // this.particleRenderer.render(this.camera);
+    }
+
+    /**
+     * Switch to next shape
+     */
+    switchToNextShape() {
+        if (!this.shapeManager) return;
+
+        this.currentShapeIndex = (this.currentShapeIndex + 1) % this.shapes.length;
+        const shapeName = this.shapes[this.currentShapeIndex];
+
+        // Update shape
+        this.shapeManager.updateShape(shapeName);
+        const { data, size } = this.shapeManager.createTargetTexture();
+        this.particleSystem.setShapeTarget(data, size);
+
+        // Reset attraction to animate morph
+        this.particleSystem.setShapeAttraction(0.0);
+
+        console.log(`[Mercury] Morphing to: ${shapeName}`);
     }
 
     onResize() {
@@ -389,8 +410,13 @@ class MercuryApp {
 
         this.renderer.setSize(width, height);
 
-        if (this.material) {
-            this.material.uniforms.uResolution.value.set(width, height);
+        if (this.particleRenderer) {
+            this.particleRenderer.setResolution(width, height);
+        }
+
+        // Resize fluid renderer framebuffers
+        if (this.fluidRenderer) {
+            this.fluidRenderer.resize(width, height);
         }
     }
 
@@ -422,16 +448,20 @@ class MercuryApp {
 
         this.sensorManager.stop();
 
+        if (this.particleSystem) {
+            this.particleSystem.dispose();
+        }
+
+        if (this.particleRenderer) {
+            this.particleRenderer.dispose();
+        }
+
+        if (this.updateProgram) {
+            this.renderer.getContext().deleteProgram(this.updateProgram);
+        }
+
         if (this.renderer) {
             this.renderer.dispose();
-        }
-
-        if (this.material) {
-            this.material.dispose();
-        }
-
-        if (this.mesh && this.mesh.geometry) {
-            this.mesh.geometry.dispose();
         }
     }
 }
