@@ -26,7 +26,7 @@ void main() {
     // Calculate point size based on distance
     float dist = max(length(viewPosition.xyz), 0.1);
     float size = uPointSize * (2.0 / dist);
-    gl_PointSize = clamp(size, 1.0, 100.0);
+    gl_PointSize = clamp(size, 1.0, 300.0); // Increased for fluid coverage
     
     // Particle radius in view space for fragment shader
     vParticleRadius = uPointSize * 0.01; // Approximate radius

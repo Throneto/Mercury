@@ -48,10 +48,13 @@ export class FluidRenderer {
         const gl = this.gl;
 
         // Pass 1: Depth rendering program
+        // CRITICAL: Bind attribute locations to match ParticleSystem VAO:
+        // Location 0 = aPosition, 1 = aVelocity, 2 = aId
         this.depthProgram = createProgram(
             gl,
             compileShader(gl, gl.VERTEX_SHADER, depthVertSource),
-            compileShader(gl, gl.FRAGMENT_SHADER, depthFragSource)
+            compileShader(gl, gl.FRAGMENT_SHADER, depthFragSource),
+            { 'aPosition': 0, 'aVelocity': 1, 'aId': 2 }
         );
 
         // Pass 2: Bilateral filter program
@@ -192,7 +195,7 @@ export class FluidRenderer {
 
         gl.uniformMatrix4fv(uProjectionMatrix, false, camera.projectionMatrix.elements);
         gl.uniformMatrix4fv(uViewMatrix, false, camera.matrixWorldInverse.elements);
-        gl.uniform1f(uPointSize, 3.0); // Particle radius
+        gl.uniform1f(uPointSize, 200.0); // Large point size for fluid coverage
 
         // Bind particle VAO (particleBuffer is an object with {vao, posBuffer, velBuffer})
         gl.bindVertexArray(particleBuffer.vao);
@@ -200,8 +203,32 @@ export class FluidRenderer {
         // Render particles as points
         gl.drawArrays(gl.POINTS, 0, particleCount);
 
-        // Cleanup - disable depth test for subsequent 2D passes
+        // Cleanup
         gl.bindVertexArray(null);
+
+        // DEBUG: Verify depth texture has data (scan 10x10 area around center)
+        const scanSize = 10;
+        const scanPixels = new Float32Array(scanSize * scanSize * 4);
+        gl.readPixels(
+            Math.floor(this.width / 2 - scanSize / 2),
+            Math.floor(this.height / 2 - scanSize / 2),
+            scanSize, scanSize,
+            gl.RGBA, gl.FLOAT, scanPixels
+        );
+
+        // Find max depth and count non-zero pixels
+        let maxDepth = 0;
+        let nonZeroCount = 0;
+        for (let i = 0; i < scanSize * scanSize; i++) {
+            const depth = scanPixels[i * 4];
+            if (depth !== 0) {
+                nonZeroCount++;
+                maxDepth = Math.max(maxDepth, Math.abs(depth));
+            }
+        }
+
+        console.log(`[DEBUG] Depth scan: ${nonZeroCount}/${scanSize * scanSize} pixels, max=${maxDepth.toFixed(3)}, particles=${particleCount}`);
+
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
         gl.disable(gl.DEPTH_TEST);
     }
@@ -243,6 +270,20 @@ export class FluidRenderer {
 
         this._drawFullscreenQuad();
 
+        // DEBUG: Verify bilateral filter output
+        const blurPixels = new Float32Array(100 * 4);
+        gl.readPixels(
+            Math.floor(this.width / 2 - 5),
+            Math.floor(this.height / 2 - 5),
+            10, 10,
+            gl.RGBA, gl.FLOAT, blurPixels
+        );
+        let blurNonZero = 0;
+        for (let i = 0; i < 100; i++) {
+            if (blurPixels[i * 4] !== 0) blurNonZero++;
+        }
+        console.log(`[DEBUG] Bilateral filter: ${blurNonZero}/100 non-zero`);
+
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }
 
@@ -266,6 +307,23 @@ export class FluidRenderer {
         gl.uniformMatrix4fv(uProjectionMatrix, false, camera.projectionMatrix.elements);
 
         this._drawFullscreenQuad();
+
+        // DEBUG: Verify normal reconstruction output
+        const normalPixels = new Float32Array(100 * 4);
+        gl.readPixels(
+            Math.floor(this.width / 2 - 5),
+            Math.floor(this.height / 2 - 5),
+            10, 10,
+            gl.RGBA, gl.FLOAT, normalPixels
+        );
+        let normalNonZero = 0;
+        for (let i = 0; i < 100; i++) {
+            const nx = normalPixels[i * 4];
+            const ny = normalPixels[i * 4 + 1];
+            const nz = normalPixels[i * 4 + 2];
+            if (nx !== 0 || ny !== 0 || nz !== 0) normalNonZero++;
+        }
+        console.log(`[DEBUG] Normal reconstruction: ${normalNonZero}/100 non-zero`);
 
         gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     }

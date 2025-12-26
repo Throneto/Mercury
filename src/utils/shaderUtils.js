@@ -25,10 +25,18 @@ export function compileShader(gl, type, source) {
 /**
  * Create a WebGL program from compiled shaders
  */
-export function createProgram(gl, vertexShader, fragmentShader) {
+export function createProgram(gl, vertexShader, fragmentShader, attributeLocations = null) {
     const program = gl.createProgram();
     gl.attachShader(program, vertexShader);
     gl.attachShader(program, fragmentShader);
+
+    // Bind attribute locations BEFORE linking (if provided)
+    if (attributeLocations) {
+        Object.entries(attributeLocations).forEach(([name, location]) => {
+            gl.bindAttribLocation(program, location, name);
+        });
+    }
+
     gl.linkProgram(program);
 
     if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {

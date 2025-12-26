@@ -326,9 +326,9 @@ class MercuryApp {
         // Update particle system uniforms
         this.particleSystem.uniforms.uTime = currentTime;
 
-        // Update gravity from sensors
-        const gravity = this.sensorManager.getGravity();
-        this.particleSystem.setGravity(gravity.x, gravity.y, gravity.z);
+        // DEBUG: Disable gravity to keep particles in view
+        // const gravity = this.sensorManager.getGravity();
+        this.particleSystem.setGravity(0, 0, 0); // Zero gravity for testing
 
         // Update touch points
         this.touchManager.update();
@@ -355,6 +355,7 @@ class MercuryApp {
         }
 
         // Update particles using Transform Feedback
+        // Update particles using Transform Feedback (MUST run to maintain buffer data)
         this.particleSystem.update(deltaTime, this.updateProgram);
 
         // Update camera matrices (required for custom rendering)

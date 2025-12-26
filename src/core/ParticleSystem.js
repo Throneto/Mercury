@@ -86,10 +86,10 @@ export class ParticleSystem {
             positions[i * 3 + 1] = y; // Centered at origin, not offset
             positions[i * 3 + 2] = z;
 
-            // Initial velocity
-            velocities[i * 3 + 0] = (Math.random() - 0.5) * 0.05;
-            velocities[i * 3 + 1] = (Math.random() - 0.5) * 0.05;
-            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
+            // Initial velocity - ZERO for testing (keep particles in view)
+            velocities[i * 3 + 0] = 0.0; // (Math.random() - 0.5) * 0.05;
+            velocities[i * 3 + 1] = 0.0; // (Math.random() - 0.5) * 0.05;
+            velocities[i * 3 + 2] = 0.0; // (Math.random() - 0.5) * 0.05;
 
             // Particle ID
             ids[i] = i;

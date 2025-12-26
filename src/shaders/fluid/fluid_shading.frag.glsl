@@ -17,17 +17,6 @@ uniform vec3 uMetalColor;
 out vec4 fragColor;
 
 void main() {
-    // DEBUG: Visualize depth texture
-    float depth = texture(uDepthTexture, vTexCoord).r;
-    
-    // If depth > 0, show in red; otherwise blue background
-    if (depth > 0.0) {
-        fragColor = vec4(depth * 100.0, 0.0, 0.0, 1.0); // Red = has depth
-    } else {
-        fragColor = vec4(0.0, 0.0, 0.1, 1.0); // Blue = background
-    }
-    return;
-    
     // Read normal from texture (convert from [0,1] to [-1,1])
     vec4 normalData = texture(uNormalTexture, vTexCoord);
     

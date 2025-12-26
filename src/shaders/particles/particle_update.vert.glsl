@@ -104,9 +104,12 @@ void main() {
     vec3 position = aPosition;
     vec3 velocity = aVelocity;
     
-    // Apply gravity force
-    vec3 gravityForce = normalize(uGravity) * 9.81 * uDeltaTime;
-    velocity += gravityForce;
+    // Apply gravity force (check for zero vector to avoid NaN from normalize)
+    float gravityMag = length(uGravity);
+    if (gravityMag > 0.001) {
+        vec3 gravityForce = normalize(uGravity) * 9.81 * uDeltaTime;
+        velocity += gravityForce;
+    }
     
     // Apply shape attraction force
     if (uShapeAttraction > 0.0) {
@@ -139,13 +142,13 @@ void main() {
         }
     }
     
-    // Add small turbulence for organic motion
+    // Add small turbulence for organic motion (DISABLED for testing)
     vec3 noisePos = position * 5.0 + uTime * 0.3;
     vec3 turbulence = vec3(
         snoise(noisePos),
         snoise(noisePos + vec3(123.456)),
         snoise(noisePos + vec3(789.012))
-    ) * 0.5 * uDeltaTime;
+    ) * 0.0 * uDeltaTime; // Turbulence disabled
     velocity += turbulence;
     
     // Apply damping
