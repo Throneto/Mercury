@@ -14,8 +14,10 @@ uniform float uDepthFalloff; // Controls edge preservation strength
 // Output
 out vec4 fragColor;
 
-// Gaussian weights for 5-tap filter
-const float weights[5] = float[](0.227027, 0.1945946, 0.1216216, 0.054054, 0.016216);
+// Gaussian function
+float gaussian(float x, float sigma) {
+    return exp(-(x * x) / (2.0 * sigma * sigma));
+}
 
 void main() {
     // Read center depth
@@ -27,38 +29,48 @@ void main() {
         return;
     }
     
-    float totalWeight = weights[0];
-    float filteredDepth = centerDepth * weights[0];
+    float totalWeight = 1.0;
+    float filteredDepth = centerDepth;
+    
+    // Dynamic kernel based on filter radius quality
+    // We iterate more samples for a smoother "VDB-like" surface
+    const int iterations = 10;
+    
+    // Sigma for spatial weight (controls blur strength)
+    float sigma = uFilterRadius / 2.0; 
     
     // Sample along filter direction
-    for (int i = 1; i < 5; i++) {
+    for (int i = 1; i <= iterations; i++) {
+        // Spatial offset
         vec2 offset = float(i) * uFilterDirection * uTexelSize;
+        
+        // Calculate spatial weight (Gaussian)
+        float spatialWeight = gaussian(float(i), sigma);
         
         // Sample both sides
         float depth1 = texture(uDepthTexture, vTexCoord + offset).r;
         float depth2 = texture(uDepthTexture, vTexCoord - offset).r;
         
-        // Calculate bilateral weights (preserve edges)
-        float spatialWeight = weights[i];
-        
-        // Depth weight for positive side
+        // POSITIVE SIDE
         if (depth1 > 0.0) {
-            float depthDiff1 = abs(centerDepth - depth1);
-            float depthWeight1 = exp(-depthDiff1 * depthDiff1 * uDepthFalloff);
-            float weight1 = spatialWeight * depthWeight1;
+            float depthDiff = abs(centerDepth - depth1);
+            // Bilateral weight: Spatial * Range (Depth)
+            // Depth falloff preserves sharp edges (self-occlusion)
+            float depthWeight = exp(-depthDiff * depthDiff * uDepthFalloff);
+            float w = spatialWeight * depthWeight;
             
-            filteredDepth += depth1 * weight1;
-            totalWeight += weight1;
+            filteredDepth += depth1 * w;
+            totalWeight += w;
         }
         
-        // Depth weight for negative side
+        // NEGATIVE SIDE
         if (depth2 > 0.0) {
-            float depthDiff2 = abs(centerDepth - depth2);
-            float depthWeight2 = exp(-depthDiff2 * depthDiff2 * uDepthFalloff);
-            float weight2 = spatialWeight * depthWeight2;
+            float depthDiff = abs(centerDepth - depth2);
+            float depthWeight = exp(-depthDiff * depthDiff * uDepthFalloff);
+            float w = spatialWeight * depthWeight;
             
-            filteredDepth += depth2 * weight2;
-            totalWeight += weight2;
+            filteredDepth += depth2 * w;
+            totalWeight += w;
         }
     }
     

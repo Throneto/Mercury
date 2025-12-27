@@ -27,30 +27,72 @@ void main() {
     
     vec3 normal = normalize(normalData.rgb * 2.0 - 1.0);
     
-    // View direction (towards camera)
-    vec3 viewDir = vec3(0.0, 0.0, 1.0); // In view space, camera looks down -Z
+    // View direction (approximate, since we are in screen space and assuming orthographic-ish projection for the fluid surface)
+    // For better effects, we should pass the actual view ray, but typically for SSFR facing +Z is "ok"
+    // However, to make reflections interesting, we need a world-space normal.
+    // The normal texture is likely in View Space.
+    // Let's assume view space normal for now.
     
-    // Calculate Fresnel effect (Schlick's approximation)
+    vec3 viewDir = vec3(0.0, 0.0, 1.0); // Facing camera
+    
+    // --- PBR / Studio Lighting Setup ---
+    
+    // 1. Calculate Reflection Vector
+    // We reflect the view vector off the normal
+    vec3 reflectDir = reflect(-viewDir, normal);
+    
+    // 2. Procedural Studio Environment Map
+    // We simulate a "Softbox" setup:
+    // - Top light (large softbox)
+    // - Two Rim lights (left/right)
+    // - Dark floor/ambient
+    
+    float envLight = 0.0;
+    
+    // Top Softbox
+    float topLight = smoothstep(0.4, 1.0, reflectDir.y);
+    envLight += topLight * 2.0;
+    
+    // Rim Lights (Left/Right)
+    float rimLight = smoothstep(0.6, 1.0, abs(reflectDir.x));
+    envLight += rimLight * 1.5;
+    
+    // Horizon / Front fill (adds volume)
+    float frontLight = smoothstep(0.8, 1.0, reflectDir.z);
+    envLight += frontLight * 0.5;
+    
+    // Darken bottom (absorption/floor)
+    float bottomDarkness = smoothstep(-0.2, -1.0, reflectDir.y);
+    envLight *= (1.0 - bottomDarkness * 0.8);
+    
+    // 3. Fresnel Effect (Schlick)
+    // Graphite/Chrome F0 is approx 0.5-1.0
+    float F0 = 0.8; 
     float fresnel = pow(1.0 - max(dot(viewDir, normal), 0.0), uFresnelPower);
-    fresnel = mix(uFresnelMin, 1.0, fresnel);
+    float F = mix(F0, 1.0, fresnel);
     
-    // Specular reflection
-    vec3 reflectDir = reflect(-uLightDirection, normal);
-    float specular = pow(max(dot(reflectDir, viewDir), 0.0), 128.0);
+    // 4. Combine
+    // Liquid metal is purely specular (metallic workflow), very little diffuse.
+    vec3 reflectionColor = vec3(envLight);
     
-    // Base metal color with slight blue tint (mercury-like)
-    vec3 baseColor = uMetalColor;
+    // Add "Chromatic Aberration" at edges for "thick glass/liquid" feel
+    // We just tint the reflection slightly at grazing angles
+    vec3 dispersion = vec3(0.0);
+    dispersion.r = smoothstep(0.0, 1.0, fresnel) * 0.1;
+    dispersion.b = smoothstep(0.0, 1.0, fresnel) * -0.1;
     
-    // Add specular highlights
-    vec3 highlightColor = vec3(1.0, 1.0, 1.0);
-    vec3 color = mix(baseColor, highlightColor, specular * 0.5);
+    vec3 finalColor = uMetalColor * reflectionColor + dispersion;
     
-    // Apply Fresnel for edge glow
-    color = mix(color, highlightColor, fresnel * 0.3);
+    // Apply Fresnel intensity
+    finalColor = mix(uMetalColor * 0.1, finalColor, F); // Base color at normal incidence, Reflection at grazing
     
-    // Simple ambient occlusion approximation (darker in concave areas)
-    float ao = 1.0 - abs(normal.z) * 0.2;
-    color *= ao;
-    
-    fragColor = vec4(color, 1.0);
+    // Boost highlights for "sparkle"
+    finalColor += pow(envLight, 3.0) * 0.5;
+
+    // Ambient Occlusion approximation (from normal Z)
+    // Edges (low Z) get darkened slightly less, deep crevices get dark
+    float ao = smoothstep(0.0, 1.0, normal.z);
+    finalColor *= (0.2 + 0.8 * ao);
+
+    fragColor = vec4(finalColor, 1.0);
 }
